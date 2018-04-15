@@ -1,0 +1,6 @@
+[package]
+name = "MemFile"
+version = "0.1.0"
+authors = ["ElasT0ny <elast0ny00@gmail.com>"]
+
+[dependencies]
