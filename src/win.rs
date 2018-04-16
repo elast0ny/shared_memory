@@ -10,9 +10,10 @@ use self::winapi::um::memoryapi::*;
 use self::winapi::um::errhandlingapi::*;
 use std::slice;
 
-
+use std::mem::size_of;
 use std::path::PathBuf;
 use std::ffi::CString;
+use std::sync::*;
 use std::ptr::{null_mut};
 
 use std::fs::{File, remove_file};
@@ -21,24 +22,25 @@ use std::io::{Write, Read};
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
 pub struct MemMetadata {
-
+    mem_lock: RwLock<*mut [u8]>,
 }
 
-pub struct MemFile<'a> {
+pub struct MemFile {
     owner: bool,
     pub file_path: PathBuf,
     pub file_map: HANDLE,
     pub mem_perm: MemPermission,
     pub mem_size: u64,
-    pub mem_addr: Option<&'a mut [u8]>,
+    mem_meta: Option<*mut MemMetadata>,
+    mem_addr:  Option<*mut [u8]>,
 }
 
-impl<'a> Drop for MemFile<'a> {
+impl Drop for MemFile {
     fn drop(&mut self) {
         unsafe {
             //Unmap memory
             if self.mem_addr.is_some() {
-                UnmapViewOfFile( self.mem_addr.as_ref().unwrap().as_ptr() as LPVOID);
+                UnmapViewOfFile(self.mem_addr.unwrap() as LPVOID);
             }
             //Close mapping
             if self.file_map != INVALID_HANDLE_VALUE {
@@ -46,17 +48,28 @@ impl<'a> Drop for MemFile<'a> {
             }
         }
 
-        //Delete file on disk
+        //Delete file on disk if we created it
         if self.owner && self.file_path.is_file() {
             match remove_file(&self.file_path) {_=>{},};
         }
     }
 }
 
-impl<'a> MemFile<'a> {
+impl MemFile {
     pub fn open(path: &std::path::Path, perm: MemPermission) -> Result<MemFile> {
-        let mut cur_file: MemFile = MemFile{owner:false, file_path: PathBuf::from(path), file_map: INVALID_HANDLE_VALUE, mem_perm: perm, mem_size: 0, mem_addr: None};
-        let mut map_perms: DWORD = 0;
+
+        if !perm.read {
+            return Err(From::from("Cannot open mapping without read permissions"));
+        }
+
+        let mut cur_file: MemFile = MemFile {
+            owner:false,
+            file_path: PathBuf::from(path),
+            file_map: INVALID_HANDLE_VALUE,
+            mem_perm: perm,
+            mem_size: 0,
+            mem_meta: None,
+            mem_addr: None};
 
         //Get namespace of shared memory
         let mut disk_file = File::open(&cur_file.file_path)?;
@@ -70,12 +83,13 @@ impl<'a> MemFile<'a> {
             None => return Err(From::from("Unable to find namespace of mapping in file...")),
         };
 
+        //TODO : We should probably not trust the size in this file... Dont know if Windows has a standard way of getting the size of a mapping
         let size: u64 = match content_tokens.next() {
             Some(v) => v.parse::<u64>()?,
-            None => return Err(From::from("Unable to find namespace of mapping in file...")),
+            None => return Err(From::from("Unable to find size of mapping in file...")),
         };
 
-        map_perms = 0;
+        let mut map_perms: DWORD = 0;
         if cur_file.mem_perm.read {
             map_perms |= FILE_MAP_READ;
         }
@@ -107,7 +121,14 @@ impl<'a> MemFile<'a> {
     }
 
     //Creates a unique memory mapped file with set permission and size
-    pub fn create(path: &std::path::Path, perm: MemPermission, size: u64) -> Result<MemFile> {
+    pub fn create(path: &std::path::Path, perm: MemPermission, mut size:  u64) -> Result<MemFile> {
+
+        if !perm.read {
+            return Err(From::from("Cannot create mapping without read permissions"));
+        }
+
+        //Add space in the shared memory for our lock
+
 
         let mut cur_file: MemFile = MemFile{
             owner:true,
@@ -115,24 +136,19 @@ impl<'a> MemFile<'a> {
             file_map: INVALID_HANDLE_VALUE,
             mem_perm: perm,
             mem_size: 0,
+            mem_meta: None,
             mem_addr: None};
 
         //Validate requested permissions
         let mut map_perms: DWORD = 0;
         if cur_file.mem_perm.read && cur_file.mem_perm.write && cur_file.mem_perm.execute {
-            println!("READWRITEEXEC");
             map_perms |= PAGE_EXECUTE_READWRITE;
         } else if cur_file.mem_perm.read & cur_file.mem_perm.execute {
-            println!("READEXEC");
             map_perms |= PAGE_EXECUTE_READ;
         } else if cur_file.mem_perm.read && cur_file.mem_perm.write {
-            println!("READWRITE");
             map_perms |= PAGE_READWRITE;
         } else if cur_file.mem_perm.read {
-            println!("READONLY");
             map_perms |= PAGE_READONLY;
-        } else {
-            return Err(From::from("Invalid permissions requested"));
         }
 
         if path.is_file() {
@@ -167,8 +183,9 @@ impl<'a> MemFile<'a> {
 
         //Create mapping and map to our address space
         unsafe {
-            let high_size: u32 = (size&0xFFFFFFFF00000000 as u64) as u32;
-            let low_size: u32 = (size&0xFFFFFFFF as u64) as u32;
+            let full_size: u64 = size + size_of::<MemMetadata>() as u64;
+            let high_size: u32 = (full_size & 0xFFFFFFFF00000000 as u64) as u32;
+            let low_size: u32 = (full_size & 0xFFFFFFFF as u64) as u32;
 
             cur_file.file_map = CreateFileMappingA(INVALID_HANDLE_VALUE, null_mut(), map_perms, high_size, low_size, CString::new(unique_ns.clone())?.as_ptr());
 
@@ -192,7 +209,29 @@ impl<'a> MemFile<'a> {
                 return Err(From::from(format!("MapViewOfFile failed with {}", GetLastError())));
             }
 
-            cur_file.mem_addr = Some(slice::from_raw_parts_mut(ptr as *mut u8, size as usize));
+            let meta_start_addr = ptr as *mut u8;
+            let data_start_addr = (ptr as usize + size_of::<MemMetadata>()) as *mut u8;
+
+            {
+                //Initialise a mock MemMetadata struct
+                let meta_template = MemMetadata {mem_lock: RwLock::new(slice::from_raw_parts_mut(data_start_addr, size as usize))};
+                let template_ptr = slice::from_raw_parts_mut(&meta_template as *const _ as *mut u8, size_of::<MemMetadata>());
+
+                let meta_dst = slice::from_raw_parts_mut(meta_start_addr, size_of::<MemMetadata>());
+
+                //Copy over the template into our shared memory
+                for i in 0..size_of::<MemMetadata>() {
+                    meta_dst[i] = template_ptr[i];
+                }
+            }
+
+            /*
+            println!("Meta : {:p}", meta_start_addr);
+            println!("Data : {:p}", data_start_addr);
+            */
+
+            cur_file.mem_meta = Some(meta_start_addr as *mut _ as *mut MemMetadata);
+            cur_file.mem_addr = Some(slice::from_raw_parts_mut(data_start_addr, size as usize));
             cur_file.mem_size = size;
         }
 
@@ -205,27 +244,24 @@ impl<'a> MemFile<'a> {
             Err(_) => return Err(From::from("Failed to write info on disk")),
         };
 
+
+        println!("Getting memlock");
+        {
+            let meta_data: &MemMetadata = unsafe{ &mut (*(cur_file.mem_meta.unwrap()))};
+            println!("Address of meta data {:p}", meta_data);
+            let mut lock_guard = meta_data.mem_lock.read().unwrap();
+            println!("Lock Guard holds : {:?}", lock_guard);
+            let shmem: &mut [u8] = unsafe { &mut (**(lock_guard))};
+            shmem[0] = 0x10;
+            println!("Address of data      {:p} = {}", shmem.as_ptr(), shmem[0]);
+            drop(cur_file);
+            return Err(From::from("test"));
+        }
+
         Ok(cur_file)
     }
-
-    pub fn set_len(&self, _size: u64) -> Result<()> {
-        Err(From::from("unimplemented !"))
-    }
-
-    pub fn metadata(&self) -> Result<MemMetadata> {
-        Err(From::from("unimplemented !"))
-    }
-
-    pub fn set_permissions(&self, _perm: MemPermission) -> Result<()> {
-        Err(From::from("unimplemented !"))
-    }
 }
-
 /*
-impl std::io::Read for MemFile {
-
-}
-
 impl std::io::Write for MemFile {
 
 }

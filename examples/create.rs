@@ -19,10 +19,12 @@ fn main() {
         }
     };
 
+    /*
     let shared_mem = mem_file.mem_addr.as_mut().unwrap();
     while shared_mem[0] == 0 {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
+    */
 
     println!("TEST !");
 }
