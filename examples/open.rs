@@ -5,26 +5,26 @@ use std::path::PathBuf;
 
 fn main() {
 
-    let my_path: PathBuf = PathBuf::from("C:\\Users\\Tony\\Downloads\\test.txt");
+    let my_path: PathBuf = PathBuf::from("test.txt");
     let my_perms: MemPermission = MemPermission {
         read:true,
         write:true,
         execute:true};
 
-    let mut mem_file: MemFile = match MemFile::open(&my_path, my_perms) {
+    let mut mem_file: MemFile = match MemFile::open(my_path.clone(), my_perms) {
         Ok(v) => v,
         Err(e) => {
-            println!("Failed to open \"{}\"", my_path.to_string_lossy());
             println!("Error : {}", e);
+            println!("Failed to open \"{}\"", my_path.to_string_lossy());
             return;
         }
     };
 
-    /*
-    println!("Openned mapping @ {:p} size : {}",  mem_file.mem_addr.as_ref().unwrap(),  mem_file.mem_size);
-    let shared_mem = mem_file.mem_addr.as_mut().unwrap();
-    shared_mem[0] = 0x1;
-    */
-    
+
+    if let Some(shared_mem) = mem_file.get_mut_nolock() {
+        println!("Setting *{:p} to non-zero !", &(shared_mem[0]));
+        shared_mem[0] = 0x1;
+    }
+
     println!("Done");
 }

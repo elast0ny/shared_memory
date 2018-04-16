@@ -127,9 +127,6 @@ impl MemFile {
             return Err(From::from("Cannot create mapping without read permissions"));
         }
 
-        //Add space in the shared memory for our lock
-
-
         let mut cur_file: MemFile = MemFile{
             owner:true,
             file_path: PathBuf::new(),
