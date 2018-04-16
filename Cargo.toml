@@ -1,6 +1,13 @@
 [package]
-name = "MemFile"
+name = "mem_file"
 version = "0.1.0"
 authors = ["ElasT0ny <elast0ny00@gmail.com>"]
 
 [dependencies]
+cfg-if = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+winapi = {version = "0.3", features = ["winbase", "handleapi", "fileapi", "memoryapi", "errhandlingapi"]}
+
+[target.'cfg(unix)'.dependencies]
+nix = "0.10"
