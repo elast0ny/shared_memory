@@ -20,10 +20,41 @@ fn main() {
         }
     };
 
+    {
+        let buffer = match mem_file.read_lock() {
+            Ok(v) => v.data,
+            Err(_) => return,
+        };
 
-    if let Some(shared_mem) = mem_file.get_mut_nolock() {
-        println!("Setting *{:p} to non-zero !", &(shared_mem[0]));
-        shared_mem[0] = 0x1;
+        print!("buffer = \"");
+        for b in &buffer[0..16] {
+            print!("\\x{:02x}", b);
+        }
+        println!("\"");
+    }
+
+    {
+        let buffer_v: &mut [u8] = match mem_file.write_lock() {
+            Ok(v) => v.data,
+            Err(_) => return,
+        };
+
+        buffer_v[0] = 0x1;
+    }
+
+    std::thread::sleep(std::time::Duration::from_secs(2));
+
+    {
+        let buffer = match mem_file.read_lock() {
+            Ok(v) => v.data,
+            Err(_) => return,
+        };
+
+        print!("buffer = \"");
+        for b in &buffer[0..16] {
+            print!("\\x{:02x}", b);
+        }
+        println!("\"");
     }
 
     println!("Done");
