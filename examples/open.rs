@@ -49,7 +49,7 @@ fn main() {
         print!("After buffer = \"");
         print!("{}", std::str::from_utf8(*read_buf).unwrap());
         println!("\"");
-        println!("len {}", read_buf.len())
+        println!("len 0x{:x}", read_buf.len())
     }
 
     println!("Done");
