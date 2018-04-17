@@ -35,7 +35,8 @@ impl<'a, T> MemFileWLockSlice<'a, T> {
 struct MemCtl {
     ///Lock controlling the access to the mapping
     rw_lock: SRWLOCK,
-    ///Actual mapping size
+    ///Actual mapping size, this is set by os_create so that os_open knows the actual requested size
+    ///This is required because Windows returns a multiple of PAGE_SIZE from VirtualQuery
     req_size: usize,
 }
 
@@ -85,7 +86,15 @@ impl MemMetadata {
 impl Drop for MemMetadata {
     ///Takes care of properly closing the MemFile (munmap(), shmem_unlink(), close())
     fn drop(&mut self) {
+        //Unmap memory from our process
+        if self.map_ctl as *mut _ == NULL {
+            unsafe { UnmapViewOfFile(self.map_ctl as *mut _); }
+        }
 
+        //Close our mapping
+        if self.map_handle as *mut _ != NULL {
+            unsafe { CloseHandle(self.map_handle); }
+        }
     }
 }
 
