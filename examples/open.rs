@@ -23,7 +23,7 @@ fn main() {
         };
 
         print!("Orig buffer = \"");
-        print!("{}", unsafe {std::str::from_utf8_unchecked(*read_buf)});
+        print!("{}", std::str::from_utf8(*read_buf).unwrap());
         println!("\"");
     }
 
@@ -41,14 +41,15 @@ fn main() {
     //Read the contents of the buffer again
     std::thread::sleep(std::time::Duration::from_secs(1));
     {
-        let buffer = match mem_file.rlock_as_slice::<u8>() {
+        let read_buf = match mem_file.rlock_as_slice::<u8>() {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };
 
         print!("After buffer = \"");
-        print!("{}", unsafe {std::str::from_utf8_unchecked(*buffer)});
+        print!("{}", std::str::from_utf8(*read_buf).unwrap());
         println!("\"");
+        println!("len {}", read_buf.len())
     }
 
     println!("Done");
