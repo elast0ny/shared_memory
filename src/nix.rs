@@ -160,7 +160,7 @@ impl MemFile {
         };
 
         //Open shared memory
-        let my_fd: RawFd = match shm_open(
+        meta.map_fd = match shm_open(
             meta.map_name.as_str(),
             OFlag::O_RDWR, //open for reading only
             Mode::S_IRUSR  //open for reading only
@@ -168,16 +168,13 @@ impl MemFile {
             Ok(v) => v,
             Err(e) => return Err(From::from(format!("shm_open() failed with :\n{}", e))),
         };
-        let file_stat: FileStat = match fstat(my_fd) {
+        let file_stat: FileStat = match fstat(meta.map_fd) {
             Ok(v) => v,
             Err(e) => {
-                //Close fd if we cant find the size...
-                match close(my_fd) {_=>{},};
                 return Err(From::from(e));
             }
         };
 
-        meta.map_fd = my_fd;
         let actual_size: usize = file_stat.st_size as usize;
         new_file.size = actual_size - size_of::<MemCtl>();
 
@@ -195,17 +192,15 @@ impl MemFile {
             Err(e) => return Err(From::from(format!("mmap() failed with :\n{}", e))),
         };
 
-        //Initialise our metadata struct
-        {
-            //Create control structures for the mapping
-            meta.map_ctl = map_addr as *mut _;
-            //Save the actual size of the mapping
-            meta.map_size = actual_size;
-            //Init pointer to user data
-            meta.map_data = (map_addr as usize + size_of::<MemCtl>()) as *mut c_void;
-            //This meta struct is now link to the MemFile
-            new_file.meta = Some(meta);
-        }
+        //Create control structures for the mapping
+        meta.map_ctl = map_addr as *mut _;
+        //Save the actual size of the mapping
+        meta.map_size = actual_size;
+        //Init pointer to user data
+        meta.map_data = (map_addr as usize + size_of::<MemCtl>()) as *mut c_void;
+        //This meta struct is now link to the MemFile
+        new_file.meta = Some(meta);
+
 
         Ok(new_file)
     }
