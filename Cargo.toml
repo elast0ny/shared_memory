@@ -7,7 +7,7 @@ authors = ["ElasT0ny <elast0ny00@gmail.com>"]
 cfg-if = "0.1"
 
 [target.'cfg(windows)'.dependencies]
-winapi = {version = "0.3", features = ["winbase", "handleapi", "fileapi", "memoryapi", "errhandlingapi"]}
+winapi = {version = "0.3", features = ["winbase", "handleapi", "fileapi", "memoryapi", "errhandlingapi", "synchapi"]}
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.10"
