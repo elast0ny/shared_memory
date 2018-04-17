@@ -77,7 +77,7 @@ impl MemFile {
             //Figure out how many elements will be in the slice
             let item_size = std::mem::size_of::<T>();
             if item_size > self.size {
-                panic!("Tried to map MemFile to a too big type");
+                panic!("Tried to map MemFile to a too big type {}/{}", item_size, self.size);
             }
             let num_items: usize = self.size / item_size;
 
