@@ -33,13 +33,6 @@ fn main() {
     }
 
     {
-        /* TODO : Make this work through lifetime magic
-        let buffer: &mut [u8] = match mem_file.wlock_as_slice() {
-            Ok(v) => &mut *v,
-            Err(_) => return,
-        };
-        */
-
         let mut wlock = match mem_file.wlock_as_slice::<u8>() {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
@@ -52,15 +45,13 @@ fn main() {
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     {
-        let buffer = match mem_file.rlock_as_slice::<i8>() {
+        let buffer = match mem_file.rlock_as_slice::<u8>() {
             Ok(v) => *v,
             Err(_) => return,
         };
 
         print!("After buffer = \"");
-        for b in &buffer[0..16] {
-            print!("\\x{:02x}", b);
-        }
+        print!("{}", unsafe {std::str::from_utf8_unchecked(buffer)});
         println!("\"");
     }
 
