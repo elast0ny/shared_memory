@@ -1,6 +1,5 @@
 extern crate mem_file;
 use mem_file::*;
-
 use std::path::PathBuf;
 
 fn main() {
@@ -21,12 +20,12 @@ fn main() {
     };
 
     {
-        let buffer = match mem_file.read_lock() {
-            Ok(v) => v.data,
+        let buffer: &[u8] = match mem_file.rlock_as_slice() {
+            Ok(v) => *v,
             Err(_) => return,
         };
 
-        print!("buffer = \"");
+        print!("Orig buffer = \"");
         for b in &buffer[0..16] {
             print!("\\x{:02x}", b);
         }
@@ -34,23 +33,31 @@ fn main() {
     }
 
     {
-        let buffer_v: &mut [u8] = match mem_file.write_lock() {
-            Ok(v) => v.data,
+        /* TODO : Make this work through lifetime magic
+        let buffer: &mut [u8] = match mem_file.wlock_as_slice() {
+            Ok(v) => &mut *v,
             Err(_) => return,
         };
+        */
 
-        buffer_v[0] = 0x1;
+        let mut wlock = match mem_file.wlock_as_slice::<u8>() {
+            Ok(v) => v,
+            Err(_) => panic!("Failed to acquire write lock !"),
+        };
+        let write_buf: &mut [u8] = &mut *wlock;
+        println!("write_buf[0] = 0x1");
+        write_buf[0] = 0x1;
     }
 
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    std::thread::sleep(std::time::Duration::from_secs(1));
 
     {
-        let buffer = match mem_file.read_lock() {
-            Ok(v) => v.data,
+        let buffer = match mem_file.rlock_as_slice::<i8>() {
+            Ok(v) => *v,
             Err(_) => return,
         };
 
-        print!("buffer = \"");
+        print!("After buffer = \"");
         for b in &buffer[0..16] {
             print!("\\x{:02x}", b);
         }

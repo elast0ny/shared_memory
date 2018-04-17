@@ -22,27 +22,37 @@ fn main() {
     println!("Waiting for non-zero !");
 
     loop {
-        let shared_mem: &[u8] = match mem_file.read_lock() {
-            Ok(v) => v.data,
-            Err(_e) => {return;},
+        let shared_mem: &[u8] = match mem_file.rlock_as_slice() {
+            Ok(v) => *v,
+            Err(_) => return,
         };
+
         if shared_mem[0] == 0x1 { break;}
         drop(shared_mem);
 
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        std::thread::sleep(std::time::Duration::from_millis(200));
     }
 
     {
-        let shared_mem: &mut [u8] = match mem_file.write_lock() {
-            Ok(v) => v.data,
-            Err(_e) => {return;},
+        /* TODO : Make this work through lifetime magic
+        let buffer: &mut [u8] = match mem_file.wlock_as_slice() {
+            Ok(v) => &mut *v,
+            Err(_) => return,
         };
+        */
 
-        shared_mem[1] = 0x41;
-        shared_mem[2] = 0x41;
-        shared_mem[3] = 0x41;
-        shared_mem[4] = 0x41;
-        shared_mem[5] = 0x41;
+        let mut wlock = match mem_file.wlock_as_slice::<u8>() {
+            Ok(v) => v,
+            Err(_) => panic!("Failed to acquire write lock !"),
+        };
+        let write_buf: &mut [u8] = &mut *wlock;
+
+        write_buf[0] = 0x41;
+        write_buf[1] = 0x41;
+        write_buf[2] = 0x41;
+        write_buf[3] = 0x41;
+        write_buf[4] = 0x41;
+        write_buf[5] = 0x41;
     }
 
     println!("Done !");

@@ -89,19 +89,39 @@ impl MemFile {
         MemFile::os_create(mem_file)
     }
 
-    pub fn read_lock(&self) -> Result<MemFileRLock> {
+    ///Returns read access to a slice on the shared memory
+    pub fn rlock_as_slice<T: MemFileCast>(&self) -> Result<MemFileRLock<T>> {
 
+        //Make sure we have a file mapped
         if let Some(ref meta) = self.meta {
-            return Ok(meta.read_lock());
+
+            //Figure out how many elements will be in the slice
+            let item_size = std::mem::size_of::<T>();
+            if item_size > self.req_size {
+                panic!("Tried to map MemFile to a too big type");
+            }
+            let num_items: usize = self.req_size / item_size;
+
+            return Ok(meta.read_lock_slice::<T>(0, num_items));
         } else {
             return Err(From::from("No file mapped to get lock on"));
         }
     }
 
-    pub fn write_lock(&mut self) -> Result<MemFileWLock> {
+    ///Returns exclusive read/write access to a slice on the shared memory
+    pub fn wlock_as_slice<T: MemFileCast>(&mut self) -> Result<MemFileWLock<T>> {
 
+        //Make sure we have a file mapped
         if let Some(ref mut meta) = self.meta {
-            return Ok(meta.write_lock());
+
+            //Figure out how many elements will be in the slice
+            let item_size = std::mem::size_of::<T>();
+            if item_size > self.req_size {
+                panic!("Tried to map MemFile to a too big type");
+            }
+            let num_items: usize = self.req_size / item_size;
+
+            return Ok(meta.write_lock_slice::<T>(0, num_items));
         } else {
             return Err(From::from("No file mapped to get lock on"));
         }
@@ -190,3 +210,30 @@ impl Drop for MemFile {
         }
     }
 }
+
+//Different types we support to cast to our shared memory
+//Do not change this unless you understand why some types cant be casted onto the shared memory
+//A good example would be Vec. As of [today], you cant initialise the Vec struct onto an arbitrary addr.
+//That means that if you cast a Vec to the MemFile, it wont be valid data representing the Vec.
+//Given we could setup the memory to represent a real vector with its data pointing to our shared memory,
+//a bigger problem would be that the Vec could try to resize its data (which is not allocated through normal means).
+
+// We support types that :
+// 1. Dont have metadata or can initialise their metadata at an arbitrary address
+// 2. Dont internaly use pointers (and no memory allocation/free)
+#[doc(hidden)] pub trait MemFileCast {}
+#[doc(hidden)] impl MemFileCast for bool {}
+#[doc(hidden)] impl MemFileCast for char {}
+#[doc(hidden)] impl MemFileCast for str {}
+#[doc(hidden)] impl MemFileCast for i8 {}
+#[doc(hidden)] impl MemFileCast for i16 {}
+#[doc(hidden)] impl MemFileCast for i64 {}
+#[doc(hidden)] impl MemFileCast for i32 {}
+#[doc(hidden)] impl MemFileCast for u8 {}
+#[doc(hidden)] impl MemFileCast for u16 {}
+#[doc(hidden)] impl MemFileCast for u32 {}
+#[doc(hidden)] impl MemFileCast for u64 {}
+#[doc(hidden)] impl MemFileCast for isize {}
+#[doc(hidden)] impl MemFileCast for usize {}
+#[doc(hidden)] impl MemFileCast for f32 {}
+#[doc(hidden)] impl MemFileCast for f64 {}

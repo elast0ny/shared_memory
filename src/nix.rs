@@ -25,26 +25,44 @@ use std::ptr::{null_mut};
 use std::mem::size_of;
 use std::fs::{File};
 use std::io::{Write, Read};
+use std::ops::{Deref, DerefMut};
 
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
-pub struct MemFileRLock<'a> {
-    pub data: &'a [u8],
+//Read lock
+pub struct MemFileRLock<'a, T: 'a> {
+    data: &'a [T],
     lock: *mut pthread_rwlock_t,
 }
-impl<'a> Drop for MemFileRLock<'a> {
+impl<'a, T> Drop for MemFileRLock<'a, T> {
     fn drop(&mut self) {
         unsafe {pthread_rwlock_unlock(self.lock)};
     }
 }
+impl<'a, T> Deref for MemFileRLock<'a, T> {
+    type Target = &'a [T];
+    fn deref(&self) -> &Self::Target { &self.data }
+}
 
-pub struct MemFileWLock<'a> {
-    pub data: &'a mut [u8],
+//Write lock
+pub struct MemFileWLock<'a, T: 'a> {
+    data: &'a mut [T],
     lock: *mut pthread_rwlock_t,
 }
-impl<'a> Drop for MemFileWLock<'a> {
+impl<'a, T> Drop for MemFileWLock<'a, T> {
     fn drop(&mut self) {
         unsafe {pthread_rwlock_unlock(self.lock)};
+    }
+}
+impl<'a, T> Deref for MemFileWLock<'a, T> {
+    type Target = &'a mut [T];
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+impl<'a, T> DerefMut for MemFileWLock<'a, T> {
+    fn deref_mut(&mut self) -> &mut &'a mut [T] {
+        &mut self.data
     }
 }
 
@@ -95,36 +113,36 @@ impl MemMetadata {
         }
     }
 
-    ///Gets a reference to the shared memory
+    ///Gets a reference to the shared memory as a slice of T with size elements
     ///This lock can be held by multiple readers
-    pub fn read_lock(&self) -> MemFileRLock {
+    ///Caller must validate the parameters
+    pub fn read_lock_slice<T>(&self, start_offset: usize, num_elements:usize) -> MemFileRLock<T> {
         if let Some(map_addr) = self.map_data {
 
             //Ask OS for lock
             unsafe{pthread_rwlock_rdlock(self.rwlock_as_ref().unwrap())};
 
             MemFileRLock {
-                data: unsafe {slice::from_raw_parts(map_addr as *const u8, self.data_size.unwrap())},
+                data: unsafe {slice::from_raw_parts((map_addr as usize + start_offset) as *const T, num_elements)},
                 lock: self.rwlock_as_ref().unwrap(),
             }
-
         } else {
             panic!("Tried to get read_lock on unitialized MemFile");
         }
     }
 
     ///Gets an exclusive mutable reference to the shared memory
-    pub fn write_lock(&mut self) -> MemFileWLock {
+    ///Caller must validate the parameters
+    pub fn write_lock_slice<T>(&mut self, start_offset: usize, num_elements:usize) -> MemFileWLock<T> {
         if let Some(map_addr) = self.map_data {
 
             //Ask OS for lock
             unsafe{pthread_rwlock_wrlock(self.rwlock_as_ref().unwrap())};
 
             MemFileWLock {
-                data: unsafe {slice::from_raw_parts_mut(map_addr as *mut u8, self.data_size.unwrap())},
+                data: unsafe {slice::from_raw_parts_mut((map_addr as usize + start_offset) as *mut T, num_elements)},
                 lock: self.rwlock_as_ref().unwrap(),
             }
-
         } else {
             panic!("Tried to get read_lock on unitialized MemFile");
         }
