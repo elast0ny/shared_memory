@@ -40,7 +40,7 @@ extern crate cfg_if;
 cfg_if! {
     if #[cfg(windows)] {
         mod win;
-        use win::*;
+        use win as os_impl;
     } else if #[cfg(unix)] {
         mod nix;
         use nix as os_impl;
