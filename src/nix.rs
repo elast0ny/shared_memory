@@ -1,7 +1,12 @@
 extern crate nix;
 extern crate libc;
 
-use super::*;
+use super::{MemFile,
+    MemFileWLock,
+    MemFileRLock,
+    MemFileWLockSlice,
+    MemFileRLockSlice};
+
 use self::libc::{
     pthread_rwlock_t,
     pthread_rwlock_init,
@@ -19,6 +24,8 @@ use self::nix::sys::stat::{fstat, FileStat, Mode};
 use self::nix::fcntl::OFlag;
 use self::nix::unistd::{close, ftruncate};
 
+use std;
+use std::path::PathBuf;
 use std::os::raw::c_void;
 use std::slice;
 use std::os::unix::io::RawFd;
@@ -29,27 +36,12 @@ use std::io::{Write, Read};
 
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
-//On linux, you call the same function whether you held read or write
-fn rwlock_unlock(lock_ptr: *mut c_void) {
-    unsafe {pthread_rwlock_unlock(lock_ptr as *mut pthread_rwlock_t)};
-}
-
-/* Read Locks Impl*/
-impl<'a, T> MemFileRLock<'a, T> { pub fn os_unlock(&mut self) { rwlock_unlock(self.lock); } }
-impl<'a, T> MemFileRLockSlice<'a, T> { pub fn os_unlock(&mut self) { rwlock_unlock(self.lock); } }
-
-/* Write Locks Impl*/
-impl<'a, T> MemFileWLock<'a, T> { pub fn os_unlock(&mut self) { rwlock_unlock(self.lock); } }
-impl<'a, T> MemFileWLockSlice<'a, T> { pub fn os_unlock(&mut self) { rwlock_unlock(self.lock); } }
-
-
 ///This struct lives insides the shared memory
 struct MemCtl {
     ///Lock controlling the access to the mapping
     rw_lock: pthread_rwlock_t,
 }
 
-///This struct describes our memory mapping
 pub struct MemMetadata {
     ///True if we created the mapping
     owner: bool,
@@ -70,7 +62,7 @@ impl MemMetadata {
     /* Get Read Lock Impl */
 
     //Regular type
-    pub fn os_rlock<T>(&self) -> MemFileRLock<T> {
+    pub fn rlock<T>(&self) -> MemFileRLock<T> {
         unsafe {
             //Acquire read lock
             pthread_rwlock_rdlock(&mut (*self.map_ctl).rw_lock);
@@ -82,7 +74,7 @@ impl MemMetadata {
     }
 
     //Slice of type
-    pub fn os_rlock_slice<T>(&self, start_offset: usize, num_elements:usize) -> MemFileRLockSlice<T> {
+    pub fn rlock_slice<T>(&self, start_offset: usize, num_elements:usize) -> MemFileRLockSlice<T> {
         unsafe {
             //Acquire read lock
             pthread_rwlock_rdlock(&mut (*self.map_ctl).rw_lock);
@@ -96,7 +88,7 @@ impl MemMetadata {
     /* Get Write Lock Impl */
 
     //Regular type
-    pub fn os_wlock<T>(&mut self) -> MemFileWLock<T> {
+    pub fn wlock<T>(&mut self) -> MemFileWLock<T> {
         unsafe {
             //Acquire read lock
             pthread_rwlock_wrlock(&mut (*self.map_ctl).rw_lock);
@@ -108,7 +100,7 @@ impl MemMetadata {
     }
 
     //Slice of type
-    pub fn os_wlock_slice<T>(&mut self, start_offset: usize, num_elements:usize) -> MemFileWLockSlice<T> {
+    pub fn wlock_slice<T>(&mut self, start_offset: usize, num_elements:usize) -> MemFileWLockSlice<T> {
         unsafe{
             //acquire write lock
             pthread_rwlock_wrlock(&mut (*self.map_ctl).rw_lock);
@@ -165,188 +157,210 @@ impl Drop for MemMetadata {
     }
 }
 
-impl MemFile {
-    ///Opens an existing MemFile, shm_open()s it then mmap()s it
-    pub fn os_open(mut new_file: MemFile) -> Result<MemFile> {
+//Opens an existing MemFile, shm_open()s it then mmap()s it
+pub fn open(mut new_file: MemFile) -> Result<MemFile> {
 
-        let map_name: String;
-        {
-            //Get namespace of shared memory
-            let mut disk_file = File::open(&new_file.file_path)?;
-            let mut file_contents: Vec<u8> = Vec::with_capacity(new_file.file_path.to_string_lossy().len() + 5);
-            disk_file.read_to_end(&mut file_contents)?;
-            map_name = String::from_utf8(file_contents)?;
+    let map_name: String;
+    {
+        //Get namespace of shared memory
+        let mut disk_file = File::open(&new_file.file_path)?;
+        let mut file_contents: Vec<u8> = Vec::with_capacity(new_file.file_path.to_string_lossy().len() + 5);
+        disk_file.read_to_end(&mut file_contents)?;
+        map_name = String::from_utf8(file_contents)?;
+    }
+
+    let mut meta: MemMetadata = MemMetadata {
+        owner: new_file.owner,
+        map_name: map_name,
+        map_fd: 0,
+        map_ctl: null_mut(),
+        map_size: 0,
+        map_data: null_mut(),
+    };
+
+    //Open shared memory
+    meta.map_fd = match shm_open(
+        meta.map_name.as_str(),
+        OFlag::O_RDWR, //open for reading only
+        Mode::S_IRUSR  //open for reading only
+    ) {
+        Ok(v) => v,
+        Err(e) => return Err(From::from(format!("shm_open() failed with :\n{}", e))),
+    };
+    let file_stat: FileStat = match fstat(meta.map_fd) {
+        Ok(v) => v,
+        Err(e) => {
+            return Err(From::from(e));
         }
+    };
 
-        let mut meta: MemMetadata = MemMetadata {
-            owner: new_file.owner,
-            map_name: map_name,
-            map_fd: 0,
-            map_ctl: null_mut(),
-            map_size: 0,
-            map_data: null_mut(),
+    let actual_size: usize = file_stat.st_size as usize;
+    new_file.size = actual_size - size_of::<MemCtl>();
+
+    //Map memory into our address space
+    let map_addr: *mut c_void = match unsafe {
+        mmap(null_mut(), //Desired addr
+            actual_size, //size of mapping
+            ProtFlags::PROT_READ|ProtFlags::PROT_WRITE, //Permissions on pages
+            MapFlags::MAP_SHARED, //What kind of mapping
+            meta.map_fd, //fd
+            0   //Offset into fd
+        )
+    } {
+        Ok(v) => v as *mut c_void,
+        Err(e) => return Err(From::from(format!("mmap() failed with :\n{}", e))),
+    };
+
+    //Create control structures for the mapping
+    meta.map_ctl = map_addr as *mut _;
+    //Save the actual size of the mapping
+    meta.map_size = actual_size;
+    //Init pointer to user data
+    meta.map_data = (map_addr as usize + size_of::<MemCtl>()) as *mut c_void;
+    //This meta struct is now link to the MemFile
+    new_file.meta = Some(meta);
+
+
+    Ok(new_file)
+}
+
+//Creates a new MemFile, shm_open()s it then mmap()s it
+pub fn create(mut new_file: MemFile) -> Result<MemFile> {
+
+    let mut disk_file = File::create(&new_file.file_path)?;
+    //println!("File created !");
+    if !new_file.file_path.is_file() {
+        return Err(From::from("Failed to create file"));
+    }
+
+    //Get unique name for mem mapping
+    let abs_disk_path: PathBuf = new_file.file_path.canonicalize()?;
+    let chars = abs_disk_path.to_string_lossy();
+    let mut unique_name: String = String::with_capacity(chars.len());
+    let mut chars = chars.chars();
+    chars.next();
+    unique_name.push('/');
+
+    for c in chars {
+        match c {
+            '/' | '.' => unique_name.push('_'),
+            v => unique_name.push(v),
+        };
+    }
+
+    let mut colision: usize = 0;
+
+    loop {
+        let shmem_path: PathBuf = match colision {
+            0 => PathBuf::from(String::from("/dev/shm") + &unique_name),
+            num => PathBuf::from(String::from("/dev/shm") + &unique_name + &format!("_{}", num)),
         };
 
-        //Open shared memory
-        meta.map_fd = match shm_open(
-            meta.map_name.as_str(),
-            OFlag::O_RDWR, //open for reading only
-            Mode::S_IRUSR  //open for reading only
-        ) {
-            Ok(v) => v,
-            Err(e) => return Err(From::from(format!("shm_open() failed with :\n{}", e))),
-        };
-        let file_stat: FileStat = match fstat(meta.map_fd) {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(From::from(e));
+        if !shmem_path.is_file() {
+            if colision > 0 {
+                unique_name = String::from(unique_name + &format!("_{}", colision));
             }
-        };
+            break;
+        } else {
+            println!("WARNING : File {} already exists. Did it not get properly closed ?", shmem_path.to_string_lossy());
+            colision += 1;
+        }
+    }
 
-        let actual_size: usize = file_stat.st_size as usize;
-        new_file.size = actual_size - size_of::<MemCtl>();
+    let mut meta: MemMetadata = MemMetadata {
+        owner: new_file.owner,
+        map_name: unique_name,
+        map_fd: 0,
+        map_ctl: null_mut(),
+        map_size: 0,
+        map_data: null_mut(),
+    };
 
-        //Map memory into our address space
-        let map_addr: *mut c_void = match unsafe {
-            mmap(null_mut(), //Desired addr
-                actual_size, //size of mapping
-                ProtFlags::PROT_READ|ProtFlags::PROT_WRITE, //Permissions on pages
-                MapFlags::MAP_SHARED, //What kind of mapping
-                meta.map_fd, //fd
-                0   //Offset into fd
-            )
-        } {
-            Ok(v) => v as *mut c_void,
-            Err(e) => return Err(From::from(format!("mmap() failed with :\n{}", e))),
-        };
+    //Create shared memory
+    meta.map_fd = match shm_open(
+        meta.map_name.as_str(), //Unique name that usualy pops up in /dev/shm/
+        OFlag::O_CREAT|OFlag::O_EXCL|OFlag::O_RDWR, //create exclusively (error if collision) and read/write to allow resize
+        Mode::S_IRUSR|Mode::S_IWUSR //Permission allow user+rw
+    ) {
+        Ok(v) => v,
+        Err(e) => return Err(From::from(format!("shm_open() failed with :\n{}", e))),
+    };
 
+    //increase size to requested size + meta
+    let actual_size: usize = new_file.size + size_of::<MemCtl>();
+
+    match ftruncate(meta.map_fd, actual_size as i64) {
+        Ok(_) => {},
+        Err(e) => return Err(From::from(format!("ftruncate() failed with :\n{}", e))),
+    };
+
+    //Map memory into our address space
+    let map_addr: *mut c_void = match unsafe {
+        mmap(null_mut(), //Desired addr
+            actual_size, //size of mapping
+            ProtFlags::PROT_READ|ProtFlags::PROT_WRITE, //Permissions on pages
+            MapFlags::MAP_SHARED, //What kind of mapping
+            meta.map_fd, //fd
+            0   //Offset into fd
+        )
+    } {
+        Ok(v) => v as *mut c_void,
+        Err(e) => return Err(From::from(format!("mmap() failed with :\n{}", e))),
+    };
+
+    //Initialise our metadata struct
+    {
         //Create control structures for the mapping
         meta.map_ctl = map_addr as *mut _;
         //Save the actual size of the mapping
         meta.map_size = actual_size;
+        //Init RwLock
+        unsafe{
+            pthread_rwlock_init(&mut (*meta.map_ctl).rw_lock, null_mut());
+        }
+
         //Init pointer to user data
         meta.map_data = (map_addr as usize + size_of::<MemCtl>()) as *mut c_void;
-        //This meta struct is now link to the MemFile
-        new_file.meta = Some(meta);
 
 
-        Ok(new_file)
+        //println!("Created mapping of size 0x{:x} !", meta.map_size.unwrap());
+        //println!("MetaHeader @ {:p}", meta.map_ctl.unwrap());
+        //println!("Data @ {:p}", meta.map_data.unwrap());
     }
 
-    ///Creates a new MemFile, shm_open()s it then mmap()s it
-    pub fn os_create(mut new_file: MemFile) -> Result<MemFile> {
+    //Write unique shmem name to disk
+    match disk_file.write(&meta.map_name.as_bytes()) {
+        Ok(write_sz) => if write_sz != meta.map_name.as_bytes().len() {
+            return Err(From::from("Failed to write full contents info on disk"));
+        },
+        Err(_) => return Err(From::from("Failed to write info on disk")),
+    };
 
-        let mut disk_file = File::create(&new_file.file_path)?;
-        //println!("File created !");
-        if !new_file.file_path.is_file() {
-            return Err(From::from("Failed to create file"));
-        }
+    new_file.meta = Some(meta);
 
-        //Get unique name for mem mapping
-        let abs_disk_path: PathBuf = new_file.file_path.canonicalize()?;
-        let chars = abs_disk_path.to_string_lossy();
-        let mut unique_name: String = String::with_capacity(chars.len());
-        let mut chars = chars.chars();
-        chars.next();
-        unique_name.push('/');
+    Ok(new_file)
+}
 
-        for c in chars {
-            match c {
-                '/' | '.' => unique_name.push('_'),
-                v => unique_name.push(v),
-            };
-        }
+//Returns a read lock to the shared memory
+pub fn rlock<T>(meta: &MemMetadata) -> MemFileRLock<T> {
+    return meta.rlock();
+}
+//Returns an exclusive read/write lock to the shared memory
+pub fn wlock<T>(meta: &mut MemMetadata) -> MemFileWLock<T> {
+    return meta.wlock();
+}
+//Returns a read lock to the shared memory as a slice
+pub fn rlock_slice<T>(meta: &MemMetadata, start_offset: usize, num_elements:usize) -> MemFileRLockSlice<T> {
+    return meta.rlock_slice(start_offset, num_elements);
+}
+///Returns an exclusive read/write lock to the shared memory as a slice
+pub fn wlock_slice<T>(meta: &mut MemMetadata, start_offset: usize, num_elements:usize) -> MemFileWLockSlice<T> {
+    return meta.wlock_slice(start_offset, num_elements);
+}
 
-        let mut colision: usize = 0;
-
-        loop {
-            let shmem_path: PathBuf = match colision {
-                0 => PathBuf::from(String::from("/dev/shm") + &unique_name),
-                num => PathBuf::from(String::from("/dev/shm") + &unique_name + &format!("_{}", num)),
-            };
-
-            if !shmem_path.is_file() {
-                if colision > 0 {
-                    unique_name = String::from(unique_name + &format!("_{}", colision));
-                }
-                break;
-            } else {
-                println!("WARNING : File {} already exists. Did it not get properly closed ?", shmem_path.to_string_lossy());
-                colision += 1;
-            }
-        }
-
-        let mut meta: MemMetadata = MemMetadata {
-            owner: new_file.owner,
-            map_name: unique_name,
-            map_fd: 0,
-            map_ctl: null_mut(),
-            map_size: 0,
-            map_data: null_mut(),
-        };
-
-        //Create shared memory
-        meta.map_fd = match shm_open(
-            meta.map_name.as_str(), //Unique name that usualy pops up in /dev/shm/
-            OFlag::O_CREAT|OFlag::O_EXCL|OFlag::O_RDWR, //create exclusively (error if collision) and read/write to allow resize
-            Mode::S_IRUSR|Mode::S_IWUSR //Permission allow user+rw
-        ) {
-            Ok(v) => v,
-            Err(e) => return Err(From::from(format!("shm_open() failed with :\n{}", e))),
-        };
-
-        //increase size to requested size + meta
-        let actual_size: usize = new_file.size + size_of::<MemCtl>();
-
-        match ftruncate(meta.map_fd, actual_size as i64) {
-            Ok(_) => {},
-            Err(e) => return Err(From::from(format!("ftruncate() failed with :\n{}", e))),
-        };
-
-        //Map memory into our address space
-        let map_addr: *mut c_void = match unsafe {
-            mmap(null_mut(), //Desired addr
-                actual_size, //size of mapping
-                ProtFlags::PROT_READ|ProtFlags::PROT_WRITE, //Permissions on pages
-                MapFlags::MAP_SHARED, //What kind of mapping
-                meta.map_fd, //fd
-                0   //Offset into fd
-            )
-        } {
-            Ok(v) => v as *mut c_void,
-            Err(e) => return Err(From::from(format!("mmap() failed with :\n{}", e))),
-        };
-
-        //Initialise our metadata struct
-        {
-            //Create control structures for the mapping
-            meta.map_ctl = map_addr as *mut _;
-            //Save the actual size of the mapping
-            meta.map_size = actual_size;
-            //Init RwLock
-            unsafe{
-                pthread_rwlock_init(&mut (*meta.map_ctl).rw_lock, null_mut());
-            }
-
-            //Init pointer to user data
-            meta.map_data = (map_addr as usize + size_of::<MemCtl>()) as *mut c_void;
-
-
-            //println!("Created mapping of size 0x{:x} !", meta.map_size.unwrap());
-            //println!("MetaHeader @ {:p}", meta.map_ctl.unwrap());
-            //println!("Data @ {:p}", meta.map_data.unwrap());
-        }
-
-        //Write unique shmem name to disk
-        match disk_file.write(&meta.map_name.as_bytes()) {
-            Ok(write_sz) => if write_sz != meta.map_name.as_bytes().len() {
-                return Err(From::from("Failed to write full contents info on disk"));
-            },
-            Err(_) => return Err(From::from("Failed to write info on disk")),
-        };
-
-        new_file.meta = Some(meta);
-
-        Ok(new_file)
-    }
+//On linux, you call the same function whether you held read or write
+pub fn read_unlock(lock_ptr: *mut c_void) { unlock(lock_ptr); }
+pub fn write_unlock(lock_ptr: *mut c_void) { unlock(lock_ptr); }
+pub fn unlock(lock_ptr: *mut c_void) {
+    unsafe {pthread_rwlock_unlock(lock_ptr as *mut pthread_rwlock_t)};
 }
