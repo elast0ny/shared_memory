@@ -68,6 +68,25 @@ impl MemFile {
         MemFile::os_create(mem_file)
     }
 
+    ///Returns read access to the shared memory as type T
+    pub fn rlock<T: MemFileCast>(&self) -> Result<MemFileRLock<T>> {
+
+        //Make sure we have a file mapped
+        if let Some(ref meta) = self.meta {
+
+            //Panic if the type is too big for the memory mapping.
+            //If we dont panic now, the user might segfault while reading/writing
+            let type_size = std::mem::size_of::<T>();
+            if type_size > self.size {
+                panic!("Tried to map MemFile to a too big type {}/{}", type_size, self.size);
+            }
+
+            return Ok(meta.os_rlock::<T>());
+        } else {
+            return Err(From::from("No file mapped to get lock on"));
+        }
+    }
+
     ///Returns read access to a slice on the shared memory
     pub fn rlock_as_slice<T: MemFileCast>(&self) -> Result<MemFileRLockSlice<T>> {
 
@@ -81,7 +100,26 @@ impl MemFile {
             }
             let num_items: usize = self.size / item_size;
 
-            return Ok(meta.read_lock_slice::<T>(0, num_items));
+            return Ok(meta.os_rlock_slice::<T>(0, num_items));
+        } else {
+            return Err(From::from("No file mapped to get lock on"));
+        }
+    }
+
+    ///Returns exclusive write access to the shared memory as type T
+    pub fn wlock<T: MemFileCast>(&mut self) -> Result<MemFileWLock<T>> {
+
+        //Make sure we have a file mapped
+        if let Some(ref mut meta) = self.meta {
+
+            //Panic if the type is too big for the memory mapping.
+            //If we dont panic now, the user might segfault while reading/writing
+            let type_size = std::mem::size_of::<T>();
+            if type_size > self.size {
+                panic!("Tried to map MemFile to a too big type {}/{}", type_size, self.size);
+            }
+
+            return Ok(meta.os_wlock::<T>());
         } else {
             return Err(From::from("No file mapped to get lock on"));
         }
@@ -100,7 +138,7 @@ impl MemFile {
             }
             let num_items: usize = self.size / item_size;
 
-            return Ok(meta.write_lock_slice::<T>(0, num_items));
+            return Ok(meta.os_wlock_slice::<T>(0, num_items));
         } else {
             return Err(From::from("No file mapped to get lock on"));
         }
@@ -150,19 +188,46 @@ impl Drop for MemFile {
 
 use std::ops::{Deref, DerefMut};
 
+/* Read Locks */
+
+//Read lock to a type
+pub struct MemFileRLock<'a, T: 'a> {
+    data: &'a T,
+    lock: *mut c_void,
+}
+impl<'a, T> Drop for MemFileRLock<'a, T> { fn drop(&mut self) { self.os_unlock(); } }
+impl<'a, T> Deref for MemFileRLock<'a, T> {
+    type Target = &'a T;
+    fn deref(&self) -> &Self::Target { &self.data }
+}
+
 //Read lock holding a slice
 pub struct MemFileRLockSlice<'a, T: 'a> {
     data: &'a [T],
     lock: *mut c_void,
 }
-impl<'a, T> Drop for MemFileRLockSlice<'a, T> {
-    fn drop(&mut self) {
-        self.os_unlock();
-    }
-}
+impl<'a, T> Drop for MemFileRLockSlice<'a, T> { fn drop(&mut self) { self.os_unlock(); } }
 impl<'a, T> Deref for MemFileRLockSlice<'a, T> {
     type Target = &'a [T];
     fn deref(&self) -> &Self::Target { &self.data }
+}
+
+/* Write Locks */
+
+//Write lock holding a type
+pub struct MemFileWLock<'a, T: 'a> {
+    data: &'a mut T,
+    lock: *mut c_void,
+}
+impl<'a, T> Drop for MemFileWLock<'a, T> { fn drop(&mut self) { self.os_unlock(); } }
+impl<'a, T> Deref for MemFileWLock<'a, T> {
+    type Target = &'a mut T;
+    fn deref(&self) -> &Self::Target { &self.data }
+}
+impl<'a, T> DerefMut for MemFileWLock<'a, T> {
+    fn deref_mut(&mut self) -> &mut &'a mut T {
+        &mut self.data
+    }
 }
 
 //Write lock holding a slice
@@ -170,11 +235,7 @@ pub struct MemFileWLockSlice<'a, T: 'a> {
     data: &'a mut [T],
     lock: *mut c_void,
 }
-impl<'a, T> Drop for MemFileWLockSlice<'a, T> {
-    fn drop(&mut self) {
-        self.os_unlock();
-    }
-}
+impl<'a, T> Drop for MemFileWLockSlice<'a, T> { fn drop(&mut self) { self.os_unlock(); } }
 impl<'a, T> Deref for MemFileWLockSlice<'a, T> {
     type Target = &'a mut [T];
     fn deref(&self) -> &Self::Target { &self.data }
