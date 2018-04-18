@@ -20,16 +20,21 @@ use std::io::{Write, Read};
 
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
-impl<'a, T> MemFileRLockSlice<'a, T> {
-    #[doc(hidden)] pub fn os_unlock(&mut self) {
-        unsafe {ReleaseSRWLockShared(self.lock as *mut SRWLOCK)};
-    }
+fn read_unlock(lock_ptr: *mut c_void) {
+    unsafe {ReleaseSRWLockShared(lock_ptr as *mut SRWLOCK)};
 }
-impl<'a, T> MemFileWLockSlice<'a, T> {
-    #[doc(hidden)] pub fn os_unlock(&mut self) {
-        unsafe {ReleaseSRWLockExclusive(self.lock as *mut SRWLOCK)};
-    }
+
+fn write_unlock(lock_ptr: *mut c_void) {
+    unsafe {ReleaseSRWLockExclusive(lock_ptr as *mut SRWLOCK)};
 }
+
+/* Read Locks Impl*/
+impl<'a, T> MemFileRLock<'a, T> { pub fn os_unlock(&mut self) { read_unlock(self.lock); } }
+impl<'a, T> MemFileRLockSlice<'a, T> { pub fn os_unlock(&mut self) { read_unlock(self.lock); } }
+
+/* Write Locks Impl*/
+impl<'a, T> MemFileWLock<'a, T> { pub fn os_unlock(&mut self) { write_unlock(self.lock); } }
+impl<'a, T> MemFileWLockSlice<'a, T> { pub fn os_unlock(&mut self) { write_unlock(self.lock); } }
 
 ///This struct lives insides the shared memory
 struct MemCtl {
