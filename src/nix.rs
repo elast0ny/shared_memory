@@ -29,17 +29,19 @@ use std::io::{Write, Read};
 
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
+//On linux, you call the same function whether you held read or write
+fn rwlock_unlock(lock_ptr: *mut c_void) {
+    unsafe {pthread_rwlock_unlock(lock_ptr as *mut pthread_rwlock_t)};
+}
 
-impl<'a, T> MemFileRLockSlice<'a, T> {
-    #[doc(hidden)] pub fn os_unlock(&mut self) {
-        unsafe {pthread_rwlock_unlock(self.lock as *mut pthread_rwlock_t)};
-    }
-}
-impl<'a, T> MemFileWLockSlice<'a, T> {
-    #[doc(hidden)] pub fn os_unlock(&mut self) {
-        unsafe {pthread_rwlock_unlock(self.lock as *mut pthread_rwlock_t)};
-    }
-}
+/* Read Locks Impl*/
+impl<'a, T> MemFileRLock<'a, T> { pub fn os_unlock(&mut self) { rwlock_unlock(self.lock); } }
+impl<'a, T> MemFileRLockSlice<'a, T> { pub fn os_unlock(&mut self) { rwlock_unlock(self.lock); } }
+
+/* Write Locks Impl*/
+impl<'a, T> MemFileWLock<'a, T> { pub fn os_unlock(&mut self) { rwlock_unlock(self.lock); } }
+impl<'a, T> MemFileWLockSlice<'a, T> { pub fn os_unlock(&mut self) { rwlock_unlock(self.lock); } }
+
 
 ///This struct lives insides the shared memory
 struct MemCtl {
@@ -64,10 +66,23 @@ pub struct MemMetadata {
 }
 
 impl MemMetadata {
-    ///Gets a reference to the shared memory as a slice of T with size elements
-    ///This lock can be held by multiple readers
-    ///Caller must validate the parameters
-    pub fn read_lock_slice<T>(&self, start_offset: usize, num_elements:usize) -> MemFileRLockSlice<T> {
+
+    /* Get Read Lock Impl */
+
+    //Regular type
+    pub fn os_rlock<T>(&self) -> MemFileRLock<T> {
+        unsafe {
+            //Acquire read lock
+            pthread_rwlock_rdlock(&mut (*self.map_ctl).rw_lock);
+            MemFileRLock {
+                data: &(*(self.map_data as *mut T)),
+                lock: &mut (*self.map_ctl).rw_lock as *mut _ as *mut c_void,
+            }
+        }
+    }
+
+    //Slice of type
+    pub fn os_rlock_slice<T>(&self, start_offset: usize, num_elements:usize) -> MemFileRLockSlice<T> {
         unsafe {
             //Acquire read lock
             pthread_rwlock_rdlock(&mut (*self.map_ctl).rw_lock);
@@ -78,9 +93,22 @@ impl MemMetadata {
         }
     }
 
-    ///Gets an exclusive mutable reference to the shared memory
-    ///Caller must validate the parameters
-    pub fn write_lock_slice<T>(&mut self, start_offset: usize, num_elements:usize) -> MemFileWLockSlice<T> {
+    /* Get Write Lock Impl */
+
+    //Regular type
+    pub fn os_wlock<T>(&mut self) -> MemFileWLock<T> {
+        unsafe {
+            //Acquire read lock
+            pthread_rwlock_wrlock(&mut (*self.map_ctl).rw_lock);
+            MemFileWLock {
+                data: &mut (*(self.map_data as *mut T)),
+                lock: &mut (*self.map_ctl).rw_lock as *mut _ as *mut c_void,
+            }
+        }
+    }
+
+    //Slice of type
+    pub fn os_wlock_slice<T>(&mut self, start_offset: usize, num_elements:usize) -> MemFileWLockSlice<T> {
         unsafe{
             //acquire write lock
             pthread_rwlock_wrlock(&mut (*self.map_ctl).rw_lock);
