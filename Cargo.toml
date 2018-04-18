@@ -2,6 +2,7 @@
 name = "mem_file"
 version = "0.1.0"
 authors = ["ElasT0ny <elast0ny00@gmail.com>"]
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 cfg-if = "0.1"
