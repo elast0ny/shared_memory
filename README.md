@@ -6,37 +6,37 @@ This crate is ideal if you need to share large amounts of data with another proc
 
 [Documentation]() | [crates.io]()
 
- ## Usage
+## Usage
 
- Creator based on [examples/create.rs](examples/create.rs)
- ``` rust
- //Create a MemFile at `pwd`\test.txt of size 4096
- let mut mem_file: MemFile = match MemFile::create(PathBuf::from("test.txt"), 4096) {<...>};
- //Set explicit scope for the lock (no need to call drop(shared_data))
- {
-     //Acquire write lock
-     let mut shared_data = match mem_file.wlock_as_slice::<u8>() {<...>};
-     let src = b"Some string you want to share\x00";
-     //Write to the shared memory
-     shared_data[0..src.len()].copy_from_slice(src);
- }
- ```
+Creator based on [examples/create.rs](examples/create.rs)
+``` rust
+//Create a MemFile at `pwd`\test.txt of size 4096
+let mut mem_file: MemFile = match MemFile::create(PathBuf::from("test.txt"), 4096) {<...>};
+//Set explicit scope for the lock (no need to call drop(shared_data))
+{
+   //Acquire write lock
+   let mut shared_data = match mem_file.wlock_as_slice::<u8>() {<...>};
+   let src = b"Some string you want to share\x00";
+   //Write to the shared memory
+   shared_data[0..src.len()].copy_from_slice(src);
+}
+```
 
 Slave based on [examples/open.rs](examples/open.rs)
- ``` rust
+``` rust
 // Open an existing MemFile from `pwd`\test.txt
- let mut mem_file: MemFile = match MemFile::open(PathBuf::from("test.txt")) {<...>};
- //Set explicit scope for the lock (no need to call drop(shared_data))
- {
-     //Acquire read lock
-     let mut shared_data = match mem_file.rlock_as_slice::<u8>() {<...>};
-     //Print the content of the shared memory as chars
-     for byte in &shared_data[0..256] {
-         if *byte == 0 { break; }
-         print!("{}", *byte as char);
-     }
- }
- ```
+let mut mem_file: MemFile = match MemFile::open(PathBuf::from("test.txt")) {<...>};
+//Set explicit scope for the lock (no need to call drop(shared_data))
+{
+   //Acquire read lock
+   let mut shared_data = match mem_file.rlock_as_slice::<u8>() {<...>};
+   //Print the content of the shared memory as chars
+   for byte in &shared_data[0..256] {
+       if *byte == 0 { break; }
+       print!("{}", *byte as char);
+   }
+}
+```
 
 ## License
 
