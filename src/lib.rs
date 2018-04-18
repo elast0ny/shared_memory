@@ -1,10 +1,9 @@
-//! Provides a wrapper around native shared memory features for [Linux](http://man7.org/linux/man-pages/man7/shm_overview.7.html) and [Windows](http://lmgtfy.com/?q=shared+memory+windows).
+//! Provides a wrapper around native shared memory for [Linux](http://man7.org/linux/man-pages/man7/shm_overview.7.html) and [Windows](http://lmgtfy.com/?q=shared+memory+windows).
 //!
-//! This crate is ideal if you need to safely share large amounts of data with another process without involving the kernel.
+//! This crate is ideal if you need to share large amounts of data with another process purely through memory.
 //!
-//! # Examples
-//! ### Creator Process
-//! Based of [examples/create.rs]()
+//! ## Examples
+//! Creator based on examples/create.rs
 //! ```
 //! //Create a MemFile at `pwd`\test.txt of size 4096
 //! let mut mem_file: MemFile = match MemFile::create(PathBuf::from("test.txt"), 4096) {<...>};
@@ -18,8 +17,7 @@
 //! }
 //! ```
 //!
-//! ### Slave Process
-//! Based of [examples/open.rs]()
+//! Slave based on examples/open.rs
 //! ```
 // Open an existing MemFile from `pwd`\test.txt
 //! let mut mem_file: MemFile = match MemFile::open(PathBuf::from("test.txt")) {<...>};
