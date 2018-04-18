@@ -4,7 +4,7 @@ Provides a wrapper around native shared memory for [Linux](http://man7.org/linux
 
 This crate is ideal if you need to share large amounts of data with another process purely through memory.
 
-[Documentation]() | [crates.io]()
+[Documentation](https://docs.rs/mem_file/) | [crates.io](https://crates.io/crates/mem_file)
 
 ## Usage
 
