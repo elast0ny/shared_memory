@@ -1,8 +1,13 @@
 [package]
 name = "mem_file"
+description = "A wrapper around native shared memory for Linux and Windows"
+repository  = "https://github.com/elast0ny/mem_file"
 version = "0.1.0"
 authors = ["ElasT0ny <elast0ny00@gmail.com>"]
 license = "MIT OR Apache-2.0"
+
+keywords = ["shmem", "shared", "memory", "inter-process", "process"]
+categories = ["os::unix-apis","os::windows-apis","memory-management","concurrency","asynchronous"]
 
 [dependencies]
 cfg-if = "0.1"
