@@ -90,7 +90,7 @@ impl MemMetadata {
     //Regular type
     pub fn wlock<T>(&mut self) -> MemFileWLock<T> {
         unsafe {
-            //Acquire read lock
+            //Acquire write lock
             pthread_rwlock_wrlock(&mut (*self.map_ctl).rw_lock);
             MemFileWLock {
                 data: &mut (*(self.map_data as *mut T)),
