@@ -20,7 +20,7 @@ fn main() {
             Err(_) => panic!("Failed to acquire write lock !"),
         };
 
-        let src = b"Hello World !\x00\x00";
+        let src = b"Hello World !\x00";
         write_buf[0..src.len()].copy_from_slice(src);
 
         println!("Wrote : {}", unsafe {std::str::from_utf8_unchecked(*write_buf)})
@@ -58,7 +58,7 @@ fn main() {
             Err(_) => panic!("Failed to acquire write lock !"),
         };
 
-        let src = b"Bye !\x00\x00";
+        let src = b"Bye !\x00";
         write_buf[0..src.len()].copy_from_slice(src);
     }
 
