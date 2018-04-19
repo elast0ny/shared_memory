@@ -16,7 +16,7 @@ fn from_ut8f_to_null(bytes: &[u8], max_len: usize) -> &str {
 fn main() {
 
     //Open an existing shared MemFile
-    let mut mem_file: MemFile = match MemFile::open(PathBuf::from("test.txt")) {
+    let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);
@@ -25,6 +25,7 @@ fn main() {
         }
     };
 
+    println!("Trying to acquire read lock !");
     //Read the original contents
     {
         //Acquire read lock
