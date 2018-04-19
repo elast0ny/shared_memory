@@ -16,7 +16,7 @@ fn from_ut8f_to_null(bytes: &[u8], max_len: usize) -> &str {
 fn main() {
 
     //Open an existing shared MemFile
-    let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")) {
+    let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link"), LockType::None) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);

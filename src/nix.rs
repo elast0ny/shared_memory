@@ -56,7 +56,7 @@ pub struct MemMetadata<'a> {
     ///File descriptor from shm_open()
     map_fd: RawFd,
     ///Hold data to control the mapping (locks)
-    map_ctl: *mut MemCtl,
+    map_metadata: *mut c_void,
     ///Holds the actual sizer of the mapping
     map_size: usize,
 
@@ -74,8 +74,8 @@ impl<'a> Drop for MemMetadata<'a> {
     fn drop(&mut self) {
 
         //Unmap memory
-        if !self.map_ctl.is_null() {
-            match unsafe {munmap(self.map_ctl as *mut _, self.map_size)} {
+        if !self.map_metadata.is_null() {
+            match unsafe {munmap(self.map_metadata as *mut _, self.map_size)} {
                 Ok(_) => {
                     //println!("munmap()");
                 },
@@ -115,7 +115,7 @@ impl<'a> Drop for MemMetadata<'a> {
 }
 
 //Opens an existing MemFile, shm_open()s it then mmap()s it
-pub fn open(mut new_file: MemFile) -> Result<MemFile> {
+pub fn open(mut new_file: MemFile, lock_type:LockType) -> Result<MemFile> {
 
     // Get the shmem path
     let shmem_path = match new_file.real_path {
@@ -125,14 +125,22 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
         },
     };
 
-    let mut meta: MemMetadata = MemMetadata {
-        owner: new_file.owner,
-        map_name: shmem_path,
-        map_fd: 0,
-        map_ctl: null_mut(),
-        map_size: 0,
-        data: null_mut(),
-        lock: &LockNone{},
+    let map_metadata_sz: usize;
+    //Use the proper lock type implementation
+    let mut meta: MemMetadata = match lock_type {
+            LockType::None => {
+                map_metadata_sz = 0; /* size_of::<LockShared>() */
+                MemMetadata {
+                    owner: new_file.owner,
+                    map_name: shmem_path,
+                    map_fd: 0,
+                    map_metadata: null_mut(),
+                    map_size: 0,
+                    data: null_mut(),
+                    lock: &LockNone{},
+                }
+            },
+           _ => unimplemented!("Linux only supports Rwlock as of now"),
     };
 
     //Open shared memory
@@ -152,7 +160,7 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
     };
 
     let actual_size: usize = file_stat.st_size as usize;
-    new_file.size = actual_size - size_of::<MemCtl>();
+    new_file.size = actual_size - map_metadata_sz;
 
     //Map memory into our address space
     let map_addr: *mut c_void = match unsafe {
@@ -169,11 +177,11 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
     };
 
     //Create control structures for the mapping
-    meta.map_ctl = map_addr as *mut _;
+    meta.map_metadata = map_addr as *mut _;
     //Save the actual size of the mapping
     meta.map_size = actual_size;
     //Init pointer to user data
-    meta.data = (map_addr as usize + size_of::<MemCtl>()) as *mut c_void;
+    meta.data = (map_addr as usize + map_metadata_sz) as *mut c_void;
     //This meta struct is now link to the MemFile
     new_file.meta = Some(meta);
 
@@ -232,22 +240,26 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
 
     new_file.real_path = Some(real_path.clone());
 
+    let map_metadata_sz: usize;
     //Use the proper lock type implementation
     let mut meta: MemMetadata = match lock_type {
-            LockType::Rwlock => MemMetadata {
-               owner: new_file.owner,
-               map_name: real_path,
-               map_fd: shmem_fd,
-               map_ctl: null_mut(),
-               map_size: 0,
-               data: null_mut(),
-               lock: &LockNone{},
-           },
+            LockType::None => {
+                map_metadata_sz = 0; /* size_of::<LockShared>() */
+                MemMetadata {
+                    owner: new_file.owner,
+                    map_name: real_path,
+                    map_fd: shmem_fd,
+                    map_metadata: null_mut(),
+                    map_size: 0,
+                    data: null_mut(),
+                    lock: &LockNone{},
+                }
+            },
            _ => unimplemented!("Linux only supports Rwlock as of now"),
     };
 
     //increase size to requested size + meta
-    let actual_size: usize = new_file.size + size_of::<MemCtl>();
+    let actual_size: usize = new_file.size + map_metadata_sz;
 
     match ftruncate(meta.map_fd, actual_size as i64) {
         Ok(_) => {},
@@ -271,7 +283,7 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
     //Initialise our metadata struct
     {
         //Create control structures for the mapping
-        meta.map_ctl = map_addr as *mut _;
+        meta.map_metadata = map_addr as *mut _;
         //Save the actual size of the mapping
         meta.map_size = actual_size;
 
@@ -282,11 +294,11 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
             pthread_rwlockattr_init(lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t);
             pthread_rwlockattr_setpshared(lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t, PTHREAD_PROCESS_SHARED);
             //Init the rwlock
-            pthread_rwlock_init(&mut (*meta.map_ctl).rw_lock, lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t);
+            pthread_rwlock_init(&mut (*(meta.map_metadata as *mut MemCtl)).rw_lock, lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t);
         }
 
         //Init pointer to user data
-        meta.data = (map_addr as usize + size_of::<MemCtl>()) as *mut c_void;
+        meta.data = (map_addr as usize + map_metadata_sz) as *mut c_void;
     }
 
     //Link the finalized metadata to the MemFile

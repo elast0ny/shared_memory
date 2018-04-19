@@ -90,7 +90,7 @@ impl<'a> MemFile<'a> {
     ///     }
     /// };
     /// ```
-    pub fn open(existing_link_path: PathBuf) -> Result<MemFile<'a>> {
+    pub fn open(existing_link_path: PathBuf, lock_type: LockType) -> Result<MemFile<'a>> {
 
         // Make sure the link file exists
         if !existing_link_path.is_file() {
@@ -114,7 +114,7 @@ impl<'a> MemFile<'a> {
         }
 
         //Open the shared memory using the real_path
-        os_impl::open(mem_file)
+        os_impl::open(mem_file, lock_type)
     }
     ///Opens an existing shared memory object by its OS specific identifier
     pub fn open_raw(_shmem_path: String) -> Result<MemFile<'a>> {
