@@ -12,7 +12,7 @@ unsafe impl MemFileCast for SharedState {}
 fn main() {
 
     //Create a new shared MemFile
-    let mut mem_file: MemFile = match MemFile::create(PathBuf::from("test.txt"), 4096) {
+    let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link"), 4096) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);
@@ -31,6 +31,9 @@ fn main() {
         shared_state.num_listenners = 0;
         let src = b"Welcome, we currently have 0 listenners !\x00";
         shared_state.message[0..src.len()].copy_from_slice(src);
+
+        println!("Holding lock for 5 seconds !");
+        std::thread::sleep(std::time::Duration::from_secs(5));
     }
     println!("Waiting for a listenner to connect !");
 
