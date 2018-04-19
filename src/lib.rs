@@ -50,6 +50,8 @@ cfg_if! {
 }
 
 use std::path::PathBuf;
+use std::fs::{File};
+use std::io::{Write, Read};
 use std::fs::remove_file;
 use std::os::raw::c_void;
 use std::ops::{Deref, DerefMut};
@@ -63,13 +65,17 @@ pub struct MemFile {
     ///Did we create this MemFile
     owner: bool,
     ///Path to the MemFile link on disk
-    file_path: PathBuf,
+    link_path: Option<PathBuf>,
+    ///Path to the OS's identifier for the shared memory object
+    real_path: Option<String>,
     ///Size of the mapping
     size: usize,
 }
 
 impl MemFile {
     ///Opens an existing MemFile
+    ///
+    /// This function takes a path to a link file created by create().
     ///
     /// # Examples
     /// ```
@@ -83,22 +89,42 @@ impl MemFile {
     ///     }
     /// };
     /// ```
-    pub fn open(path: PathBuf) -> Result<MemFile> {
+    pub fn open(existing_link_path: PathBuf) -> Result<MemFile> {
 
-        if !path.is_file() {
+        // Make sure the link file exists
+        if !existing_link_path.is_file() {
             return Err(From::from("Cannot open MemFile because file doesnt exists"));
         }
 
-        let mem_file: MemFile = MemFile {
+        let mut mem_file: MemFile = MemFile {
             meta: None,
             owner: false,
-            file_path: path,
+            link_path: Some(existing_link_path.clone()),
+            real_path: None,
             size: 0, //os_open needs to fill this field up
         };
 
+        //Get real_path from link file
+        {
+            let mut disk_file = File::open(&existing_link_path)?;
+            let mut file_contents: Vec<u8> = Vec::with_capacity(existing_link_path.to_string_lossy().len() + 5);
+            disk_file.read_to_end(&mut file_contents)?;
+            mem_file.real_path = Some(String::from_utf8(file_contents)?);
+        }
+
+        //Open the shared memory using the real_path
         os_impl::open(mem_file)
     }
-    ///Creates a new MemFile
+    ///Opens an existing shared memory object by its OS specific identifier
+    pub fn open_raw(_shmem_path: String) -> Result<MemFile> {
+        unimplemented!("This is not implemented yet");
+    }
+    /// Creates a new MemFile
+    ///
+    /// This involves creating a "link" on disk specified by the first parameter.
+    /// This link contains the OS specific identifier to the shared memory. The usage of such link Files
+    /// on disk help manage identifier colisions. (Ie: a binary using the same argument to this function
+    /// can be ran from different directories without worrying about collisions)
     ///
     /// # Examples
     /// ```
@@ -112,28 +138,57 @@ impl MemFile {
     ///     }
     /// };
     /// ```
-    pub fn create(path: PathBuf, size: usize) -> Result<MemFile> {
+    pub fn create(new_link_path: PathBuf, size: usize) -> Result<MemFile> {
 
-        if path.is_file() {
+        let mut cur_link;
+        if new_link_path.is_file() {
             return Err(From::from("Cannot create MemFile because file already exists"));
+        } else {
+            cur_link = File::create(&new_link_path)?;
         }
 
         let mem_file: MemFile = MemFile {
             meta: None,
             owner: true,
-            file_path: path,
+            link_path: Some(new_link_path),
+            real_path: None,
             size: size,
         };
 
-        os_impl::create(mem_file)
+        let created_file = os_impl::create(mem_file)?;
+
+        //Write OS specific identifier in link file
+        {
+            let real_path: &String = created_file.real_path.as_ref().unwrap();
+            match cur_link.write(real_path.as_bytes()) {
+                Ok(write_sz) => if write_sz != real_path.as_bytes().len() {
+                    return Err(From::from("Failed to write full contents info on disk"));
+                },
+                Err(_) => return Err(From::from("Failed to write info on disk")),
+            };
+        }
+
+        Ok(created_file)
+    }
+    ///Creates a shared memory object
+    pub fn create_raw(_shmem_path: String) -> Result<MemFile> {
+        unimplemented!("This is not implemented yet");
     }
     ///Returns the size of the MemFile
     pub fn get_size(&self) -> &usize {
         &self.size
     }
-    ///Returns the path of the MemFile
-    pub fn get_path(&self) -> &PathBuf {
-        &self.file_path
+    ///Returns the link_path of the MemFile
+    pub fn get_link_path(&self) -> Option<&PathBuf> {
+        self.link_path.as_ref()
+    }
+    ///Returns the OS specific path of the shared memory object
+    ///
+    /// Usualy on Linux, this will point to a file under /dev/shmem
+    ///
+    /// On Windows, this returns a namespace
+    pub fn get_real_path(&self) -> Option<&String> {
+        self.real_path.as_ref()
     }
     ///Returns a non-exclusive read lock to the shared memory
     ///
@@ -249,8 +304,12 @@ impl Drop for MemFile {
     ///Deletes the MemFile artifacts
     fn drop(&mut self) {
         //Delete file on disk if we created it
-        if self.owner && self.file_path.is_file() {
-            match remove_file(&self.file_path) {_=>{},};
+        if self.owner {
+            if let Some(ref file_path) = self.link_path {
+                if file_path.is_file() {
+                    match remove_file(file_path) {_=>{},};
+                }
+            }
         }
         //Drop our internal view of the MemFile
         if let Some(meta) = self.meta.take() {

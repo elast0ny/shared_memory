@@ -35,8 +35,6 @@ use std::slice;
 use std::os::unix::io::RawFd;
 use std::ptr::{null_mut};
 use std::mem::size_of;
-use std::fs::{File};
-use std::io::{Write, Read};
 
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
@@ -164,18 +162,17 @@ impl Drop for MemMetadata {
 //Opens an existing MemFile, shm_open()s it then mmap()s it
 pub fn open(mut new_file: MemFile) -> Result<MemFile> {
 
-    let map_name: String;
-    {
-        //Get namespace of shared memory
-        let mut disk_file = File::open(&new_file.file_path)?;
-        let mut file_contents: Vec<u8> = Vec::with_capacity(new_file.file_path.to_string_lossy().len() + 5);
-        disk_file.read_to_end(&mut file_contents)?;
-        map_name = String::from_utf8(file_contents)?;
-    }
+    // Get the shmem path
+    let shmem_path = match new_file.real_path {
+        Some(ref path) => path.clone(),
+        None => {
+            panic!("Tried to open MemFile with no real_path");
+        },
+    };
 
     let mut meta: MemMetadata = MemMetadata {
         owner: new_file.owner,
-        map_name: map_name,
+        map_name: shmem_path,
         map_fd: 0,
         map_ctl: null_mut(),
         map_size: 0,
@@ -231,49 +228,42 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
 //Creates a new MemFile, shm_open()s it then mmap()s it
 pub fn create(mut new_file: MemFile) -> Result<MemFile> {
 
-    let mut disk_file = File::create(&new_file.file_path)?;
-    //println!("File created !");
-    if !new_file.file_path.is_file() {
-        return Err(From::from("Failed to create file"));
-    }
+    // Try to infer the name of real_path
+    let real_path: String = match new_file.real_path {
+        //User doesnt want link file, simply create shmem with real_path
+        Some(ref path) => path.clone(),
+        //User is creating a MemFile with fs link
+        None => {
+            //We dont have a real path and a link file wasn created
+            if let Some(ref file_path) = new_file.link_path {
+                if !file_path.is_file() {
+                    return Err(From::from("os_impl::create() on a link but not link file exists..."));
+                }
 
-    //Get unique name for mem mapping
-    let abs_disk_path: PathBuf = new_file.file_path.canonicalize()?;
-    let chars = abs_disk_path.to_string_lossy();
-    let mut unique_name: String = String::with_capacity(chars.len());
-    let mut chars = chars.chars();
-    chars.next();
-    unique_name.push('/');
-
-    for c in chars {
-        match c {
-            '/' | '.' => unique_name.push('_'),
-            v => unique_name.push(v),
-        };
-    }
-
-    let mut colision: usize = 0;
-
-    loop {
-        let shmem_path: PathBuf = match colision {
-            0 => PathBuf::from(String::from("/dev/shm") + &unique_name),
-            num => PathBuf::from(String::from("/dev/shm") + &unique_name + &format!("_{}", num)),
-        };
-
-        if !shmem_path.is_file() {
-            if colision > 0 {
-                unique_name = String::from(unique_name + &format!("_{}", colision));
+                //Get unique name for shmem object
+                let abs_disk_path: PathBuf = file_path.canonicalize()?;
+                let chars = abs_disk_path.to_string_lossy();
+                let mut unique_name: String = String::with_capacity(chars.len());
+                let mut chars = chars.chars();
+                chars.next();
+                unique_name.push('/');
+                for c in chars {
+                    match c {
+                        '/' | '.' => unique_name.push('_'),
+                        v => unique_name.push(v),
+                    };
+                }
+                unique_name
+            } else {
+                //lib.rs shouldnt call us without either real_path or link_path set
+                panic!("Trying to create MemFile without any name");
             }
-            break;
-        } else {
-            println!("WARNING : File {} already exists. Did it not get properly closed ?", shmem_path.to_string_lossy());
-            colision += 1;
         }
-    }
+    };
 
     let mut meta: MemMetadata = MemMetadata {
         owner: new_file.owner,
-        map_name: unique_name,
+        map_name: real_path,
         map_fd: 0,
         map_ctl: null_mut(),
         map_size: 0,
@@ -281,6 +271,9 @@ pub fn create(mut new_file: MemFile) -> Result<MemFile> {
     };
 
     //Create shared memory
+    //TODO : Handle "File exists" errors when creating MemFile with new_file.link_path.is_some()
+    //       When new_file.link_path.is_some(), we can figure out a real_path that doesnt collide with another
+    //       and stick it in the link_file
     meta.map_fd = match shm_open(
         meta.map_name.as_str(), //Unique name that usualy pops up in /dev/shm/
         OFlag::O_CREAT|OFlag::O_EXCL|OFlag::O_RDWR, //create exclusively (error if collision) and read/write to allow resize
@@ -331,20 +324,7 @@ pub fn create(mut new_file: MemFile) -> Result<MemFile> {
 
         //Init pointer to user data
         meta.map_data = (map_addr as usize + size_of::<MemCtl>()) as *mut c_void;
-
-
-        //println!("Created mapping of size 0x{:x} !", meta.map_size.unwrap());
-        //println!("MetaHeader @ {:p}", meta.map_ctl.unwrap());
-        //println!("Data @ {:p}", meta.map_data.unwrap());
     }
-
-    //Write unique shmem name to disk
-    match disk_file.write(&meta.map_name.as_bytes()) {
-        Ok(write_sz) => if write_sz != meta.map_name.as_bytes().len() {
-            return Err(From::from("Failed to write full contents info on disk"));
-        },
-        Err(_) => return Err(From::from("Failed to write info on disk")),
-    };
 
     new_file.meta = Some(meta);
 
