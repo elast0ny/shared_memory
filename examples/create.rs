@@ -7,7 +7,7 @@ struct SharedState {
     message: [u8; 256],
 }
 //WARNING : Only do this if you know what you're doing.
-impl MemFileCast for SharedState {}
+unsafe impl MemFileCast for SharedState {}
 
 fn main() {
 

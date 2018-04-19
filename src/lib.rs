@@ -279,7 +279,7 @@ impl Drop for MemFile {
 /// An example of a type that __shouldnt__ be cast to the shared memory would be Vec.
 /// Vec internaly contains a pointer to a slice containing its data and some other metadata.
 /// This means that to cast a Vec to the shared memory, the memory has to already be initialized with valid pointers and metadata.
-/// Franted we could initialize those fields manually, the use of the vector might then trigger a free/realloc on our shared memory.
+/// Granted we could initialize those fields manually, the use of the vector might then trigger a free/realloc on our shared memory.
 ///
 /// # Examples
 /// ```
@@ -301,22 +301,22 @@ impl Drop for MemFile {
 ///     shared_state.num_listenners = 0;
 /// }
 ///```
-pub trait MemFileCast {}
-impl MemFileCast for bool {}
-impl MemFileCast for char {}
-impl MemFileCast for str {}
-impl MemFileCast for i8 {}
-impl MemFileCast for i16 {}
-impl MemFileCast for i64 {}
-impl MemFileCast for i32 {}
-impl MemFileCast for u8 {}
-impl MemFileCast for u16 {}
-impl MemFileCast for u32 {}
-impl MemFileCast for u64 {}
-impl MemFileCast for isize {}
-impl MemFileCast for usize {}
-impl MemFileCast for f32 {}
-impl MemFileCast for f64 {}
+pub unsafe trait MemFileCast {}
+unsafe impl MemFileCast for bool {}
+unsafe impl MemFileCast for char {}
+unsafe impl MemFileCast for str {}
+unsafe impl MemFileCast for i8 {}
+unsafe impl MemFileCast for i16 {}
+unsafe impl MemFileCast for i32 {}
+unsafe impl MemFileCast for u8 {}
+unsafe impl MemFileCast for i64 {}
+unsafe impl MemFileCast for u16 {}
+unsafe impl MemFileCast for u64 {}
+unsafe impl MemFileCast for isize {}
+unsafe impl MemFileCast for u32 {}
+unsafe impl MemFileCast for usize {}
+unsafe impl MemFileCast for f32 {}
+unsafe impl MemFileCast for f64 {}
 
 /* Read Locks */
 
