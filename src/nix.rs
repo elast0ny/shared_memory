@@ -11,12 +11,16 @@ use self::libc::{
     pthread_rwlock_t,
     pthread_rwlock_init,
     pthread_rwlock_unlock,
-    /*
-    pthread_rwlock_tryrdlock,
-    pthread_rwlock_trywrlock,
-    */
+    //pthread_rwlock_tryrdlock,
+    //pthread_rwlock_trywrlock,
     pthread_rwlock_rdlock,
     pthread_rwlock_wrlock,
+
+    /* Lock Attribute stuff */
+    pthread_rwlockattr_t,
+    pthread_rwlockattr_init,
+    pthread_rwlockattr_setpshared,
+    PTHREAD_PROCESS_SHARED,
 };
 
 use self::nix::sys::mman::{mmap, munmap, shm_open, shm_unlink, ProtFlags, MapFlags};
@@ -314,9 +318,15 @@ pub fn create(mut new_file: MemFile) -> Result<MemFile> {
         meta.map_ctl = map_addr as *mut _;
         //Save the actual size of the mapping
         meta.map_size = actual_size;
-        //Init RwLock
-        unsafe{
-            pthread_rwlock_init(&mut (*meta.map_ctl).rw_lock, null_mut());
+
+        let mut lock_attr: [u8; size_of::<pthread_rwlockattr_t>()] = [0; size_of::<pthread_rwlockattr_t>()];
+
+        unsafe {
+            //Set the PTHREAD_PROCESS_SHARED attribute on our rwlock
+            pthread_rwlockattr_init(lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t);
+            pthread_rwlockattr_setpshared(lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t, PTHREAD_PROCESS_SHARED);
+            //Init the rwlock
+            pthread_rwlock_init(&mut (*meta.map_ctl).rw_lock, lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t);
         }
 
         //Init pointer to user data
