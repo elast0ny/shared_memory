@@ -1,3 +1,7 @@
+compile_error!(
+"Do not use on Windows as the locking is currently unsafe...\n
+See : https://github.com/elast0ny/mem_file/issues/1");
+
 extern crate winapi;
 
 use super::*;
