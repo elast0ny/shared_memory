@@ -1,21 +1,23 @@
 extern crate nix;
 extern crate libc;
 
-use super::{MemFile,
-    MemFileWLock,
-    MemFileRLock,
-    MemFileWLockSlice,
-    MemFileRLockSlice};
+use super::{
+    MemFile,
+    LockType,
+    LockNone,
+    MemFileLockable};
 
 use self::libc::{
     pthread_rwlock_t,
     pthread_rwlock_init,
+    /*
     pthread_rwlock_unlock,
-    //pthread_rwlock_tryrdlock,
-    //pthread_rwlock_trywrlock,
     pthread_rwlock_rdlock,
     pthread_rwlock_wrlock,
+    */
 
+    //pthread_rwlock_tryrdlock,
+    //pthread_rwlock_trywrlock,
     /* Lock Attribute stuff */
     pthread_rwlockattr_t,
     pthread_rwlockattr_init,
@@ -31,7 +33,6 @@ use self::nix::unistd::{close, ftruncate};
 use std;
 use std::path::PathBuf;
 use std::os::raw::c_void;
-use std::slice;
 use std::os::unix::io::RawFd;
 use std::ptr::{null_mut};
 use std::mem::size_of;
@@ -44,7 +45,10 @@ struct MemCtl {
     rw_lock: pthread_rwlock_t,
 }
 
-pub struct MemMetadata {
+pub struct MemMetadata<'a> {
+
+    /* Optionnal implementation fields */
+
     ///True if we created the mapping
     owner: bool,
     ///Name of mapping
@@ -55,66 +59,17 @@ pub struct MemMetadata {
     map_ctl: *mut MemCtl,
     ///Holds the actual sizer of the mapping
     map_size: usize,
+
+    /* Mandatory fields */
+
     ///Pointer to user data
-    map_data: *mut c_void,
+    pub data: *mut c_void,
+    //Our custom lock implementation
+    pub lock : &'a MemFileLockable,
 }
 
-impl MemMetadata {
-
-    /* Get Read Lock Impl */
-
-    //Regular type
-    pub fn rlock<T>(&self) -> MemFileRLock<T> {
-        unsafe {
-            //Acquire read lock
-            pthread_rwlock_rdlock(&mut (*self.map_ctl).rw_lock);
-            MemFileRLock {
-                data: &(*(self.map_data as *mut T)),
-                lock: &mut (*self.map_ctl).rw_lock as *mut _ as *mut c_void,
-            }
-        }
-    }
-
-    //Slice of type
-    pub fn rlock_slice<T>(&self, start_offset: usize, num_elements:usize) -> MemFileRLockSlice<T> {
-        unsafe {
-            //Acquire read lock
-            pthread_rwlock_rdlock(&mut (*self.map_ctl).rw_lock);
-            MemFileRLockSlice {
-                data: slice::from_raw_parts((self.map_data as usize + start_offset) as *const T, num_elements),
-                lock: &mut (*self.map_ctl).rw_lock as *mut _ as *mut c_void,
-            }
-        }
-    }
-
-    /* Get Write Lock Impl */
-
-    //Regular type
-    pub fn wlock<T>(&mut self) -> MemFileWLock<T> {
-        unsafe {
-            //Acquire write lock
-            pthread_rwlock_wrlock(&mut (*self.map_ctl).rw_lock);
-            MemFileWLock {
-                data: &mut (*(self.map_data as *mut T)),
-                lock: &mut (*self.map_ctl).rw_lock as *mut _ as *mut c_void,
-            }
-        }
-    }
-
-    //Slice of type
-    pub fn wlock_slice<T>(&mut self, start_offset: usize, num_elements:usize) -> MemFileWLockSlice<T> {
-        unsafe{
-            //acquire write lock
-            pthread_rwlock_wrlock(&mut (*self.map_ctl).rw_lock);
-            MemFileWLockSlice {
-                data: slice::from_raw_parts_mut((self.map_data as usize + start_offset) as *mut T, num_elements),
-                lock: &mut (*self.map_ctl).rw_lock as *mut _ as *mut c_void,
-            }
-        }
-    }
-}
-
-impl Drop for MemMetadata {
+///shared memory teardown for linux
+impl<'a> Drop for MemMetadata<'a> {
     ///Takes care of properly closing the MemFile (munmap(), shmem_unlink(), close())
     fn drop(&mut self) {
 
@@ -176,7 +131,8 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
         map_fd: 0,
         map_ctl: null_mut(),
         map_size: 0,
-        map_data: null_mut(),
+        data: null_mut(),
+        lock: &LockNone{},
     };
 
     //Open shared memory
@@ -217,7 +173,7 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
     //Save the actual size of the mapping
     meta.map_size = actual_size;
     //Init pointer to user data
-    meta.map_data = (map_addr as usize + size_of::<MemCtl>()) as *mut c_void;
+    meta.data = (map_addr as usize + size_of::<MemCtl>()) as *mut c_void;
     //This meta struct is now link to the MemFile
     new_file.meta = Some(meta);
 
@@ -226,7 +182,7 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
 }
 
 //Creates a new MemFile, shm_open()s it then mmap()s it
-pub fn create(mut new_file: MemFile) -> Result<MemFile> {
+pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
 
     // real_path is either :
     // 1. Specified directly
@@ -275,13 +231,19 @@ pub fn create(mut new_file: MemFile) -> Result<MemFile> {
     };
 
     new_file.real_path = Some(real_path.clone());
-    let mut meta: MemMetadata = MemMetadata {
-        owner: new_file.owner,
-        map_name: real_path,
-        map_fd: shmem_fd,
-        map_ctl: null_mut(),
-        map_size: 0,
-        map_data: null_mut(),
+
+    //Use the proper lock type implementation
+    let mut meta: MemMetadata = match lock_type {
+            LockType::Rwlock => MemMetadata {
+               owner: new_file.owner,
+               map_name: real_path,
+               map_fd: shmem_fd,
+               map_ctl: null_mut(),
+               map_size: 0,
+               data: null_mut(),
+               lock: &LockNone{},
+           },
+           _ => unimplemented!("Linux only supports Rwlock as of now"),
     };
 
     //increase size to requested size + meta
@@ -324,35 +286,11 @@ pub fn create(mut new_file: MemFile) -> Result<MemFile> {
         }
 
         //Init pointer to user data
-        meta.map_data = (map_addr as usize + size_of::<MemCtl>()) as *mut c_void;
+        meta.data = (map_addr as usize + size_of::<MemCtl>()) as *mut c_void;
     }
 
     //Link the finalized metadata to the MemFile
     new_file.meta = Some(meta);
 
     Ok(new_file)
-}
-
-//Returns a read lock to the shared memory
-pub fn rlock<T>(meta: &MemMetadata) -> MemFileRLock<T> {
-    return meta.rlock();
-}
-//Returns an exclusive read/write lock to the shared memory
-pub fn wlock<T>(meta: &mut MemMetadata) -> MemFileWLock<T> {
-    return meta.wlock();
-}
-//Returns a read lock to the shared memory as a slice
-pub fn rlock_slice<T>(meta: &MemMetadata, start_offset: usize, num_elements:usize) -> MemFileRLockSlice<T> {
-    return meta.rlock_slice(start_offset, num_elements);
-}
-///Returns an exclusive read/write lock to the shared memory as a slice
-pub fn wlock_slice<T>(meta: &mut MemMetadata, start_offset: usize, num_elements:usize) -> MemFileWLockSlice<T> {
-    return meta.wlock_slice(start_offset, num_elements);
-}
-
-//On linux, you call the same function whether you held read or write
-pub fn read_unlock(lock_ptr: *mut c_void) { unlock(lock_ptr); }
-pub fn write_unlock(lock_ptr: *mut c_void) { unlock(lock_ptr); }
-pub fn unlock(lock_ptr: *mut c_void) {
-    unsafe {pthread_rwlock_unlock(lock_ptr as *mut pthread_rwlock_t)};
 }

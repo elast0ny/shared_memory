@@ -12,7 +12,7 @@ unsafe impl MemFileCast for SharedState {}
 fn main() {
 
     //Create a new shared MemFile
-    let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link"), 4096) {
+    let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link"), LockType::Mutex, 4096) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);
@@ -23,7 +23,7 @@ fn main() {
 
     //Initialize the MemFile with default values
     {
-        let mut shared_state: MemFileWLock<SharedState> = match mem_file.wlock() {
+        let mut shared_state: WriteLockGuard<SharedState> = match mem_file.wlock() {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };
@@ -41,7 +41,7 @@ fn main() {
     loop {
 
         //Acquire read lock
-        let shared_state: MemFileRLock<SharedState> = match mem_file.rlock() {
+        let shared_state: ReadLockGuard<SharedState> = match mem_file.rlock() {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire read lock !"),
         };
@@ -59,7 +59,7 @@ fn main() {
 
     //Modify the shared memory just for fun
     {
-        let mut shared_state: MemFileWLock<SharedState> = match mem_file.wlock() {
+        let mut shared_state: WriteLockGuard<SharedState> = match mem_file.wlock() {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };

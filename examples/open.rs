@@ -29,7 +29,7 @@ fn main() {
     //Read the original contents
     {
         //Acquire read lock
-        let read_buf: MemFileRLockSlice<u8> = match mem_file.rlock_as_slice() {
+        let read_buf: ReadLockGuardSlice<u8> = match mem_file.rlock_as_slice() {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire read lock !"),
         };
@@ -42,7 +42,7 @@ fn main() {
     println!("Incrementing shared listenner count !");
     //Update the shared memory
     {
-        let mut num_listenners: MemFileWLock<u32> = match mem_file.wlock() {
+        let mut num_listenners: WriteLockGuard<u32> = match mem_file.wlock() {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };

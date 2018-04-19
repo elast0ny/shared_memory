@@ -49,19 +49,20 @@ cfg_if! {
     }
 }
 
+mod lock_defs;
+pub use lock_defs::*;
+
 use std::path::PathBuf;
 use std::fs::{File};
 use std::io::{Write, Read};
 use std::fs::remove_file;
-use std::os::raw::c_void;
-use std::ops::{Deref, DerefMut};
 
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
 ///Struct used to manipulate the shared memory
-pub struct MemFile {
+pub struct MemFile<'a> {
     ///Meta data to help manage this MemFile
-    meta: Option<os_impl::MemMetadata>,
+    meta: Option<os_impl::MemMetadata<'a>>,
     ///Did we create this MemFile
     owner: bool,
     ///Path to the MemFile link on disk
@@ -72,7 +73,7 @@ pub struct MemFile {
     size: usize,
 }
 
-impl MemFile {
+impl<'a> MemFile<'a> {
     ///Opens an existing MemFile
     ///
     /// This function takes a path to a link file created by create().
@@ -89,7 +90,7 @@ impl MemFile {
     ///     }
     /// };
     /// ```
-    pub fn open(existing_link_path: PathBuf) -> Result<MemFile> {
+    pub fn open(existing_link_path: PathBuf) -> Result<MemFile<'a>> {
 
         // Make sure the link file exists
         if !existing_link_path.is_file() {
@@ -116,7 +117,7 @@ impl MemFile {
         os_impl::open(mem_file)
     }
     ///Opens an existing shared memory object by its OS specific identifier
-    pub fn open_raw(_shmem_path: String) -> Result<MemFile> {
+    pub fn open_raw(_shmem_path: String) -> Result<MemFile<'a>> {
         unimplemented!("This is not implemented yet");
     }
     /// Creates a new MemFile
@@ -138,7 +139,7 @@ impl MemFile {
     ///     }
     /// };
     /// ```
-    pub fn create(new_link_path: PathBuf, size: usize) -> Result<MemFile> {
+    pub fn create(new_link_path: PathBuf, lock_type: LockType, size: usize) -> Result<MemFile<'a>> {
 
         let mut cur_link;
         if new_link_path.is_file() {
@@ -155,7 +156,7 @@ impl MemFile {
             size: size,
         };
 
-        let created_file = os_impl::create(mem_file)?;
+        let created_file = os_impl::create(mem_file, lock_type)?;
 
         //Write OS specific identifier in link file
         if let Some(ref real_path) = created_file.real_path {
@@ -172,7 +173,7 @@ impl MemFile {
         Ok(created_file)
     }
     ///Creates a shared memory object
-    pub fn create_raw(_shmem_path: String) -> Result<MemFile> {
+    pub fn create_raw(_shmem_path: String) -> Result<MemFile<'a>> {
         unimplemented!("This is not implemented yet");
     }
     ///Returns the size of the MemFile
@@ -200,19 +201,19 @@ impl MemFile {
     /// let some_val = mem_file.rlock::<u8>().unwrap();
     /// println!("I can read a shared u8 ! {}", *some_val);
     /// ```
-    pub fn rlock<T: MemFileCast>(&self) -> Result<MemFileRLock<T>> {
+    pub fn rlock<D: MemFileCast>(&self) -> Result<ReadLockGuard<D>> {
 
         //Make sure we have a file mapped
         if let Some(ref meta) = self.meta {
 
             //Make sure that we can cast our memory to the type
-            let type_size = std::mem::size_of::<T>();
+            let type_size = std::mem::size_of::<D>();
             if type_size > self.size {
                 return Err(From::from(
                     format!("Tried to map MemFile to a too big type {}/{}", type_size, self.size)
                 ));
             }
-            return Ok(os_impl::rlock::<T>(meta));
+            return Ok(meta.rlock::<D>());
         } else {
             return Err(From::from("No file mapped to get lock on"));
         }
@@ -226,13 +227,13 @@ impl MemFile {
     /// let read_buf = mem_file.rlock_as_slice::<u8>().unwrap();
     /// println!("I'm reading into a u8 from a shared &[u8] ! : {}", read_buf[0]);
     /// ```
-    pub fn rlock_as_slice<T: MemFileCast>(&self) -> Result<MemFileRLockSlice<T>> {
+    pub fn rlock_as_slice<D: MemFileCast>(&self) -> Result<ReadLockGuardSlice<D>> {
 
         //Make sure we have a file mapped
         if let Some(ref meta) = self.meta {
 
             //Make sure that we can cast our memory to the slice
-            let item_size = std::mem::size_of::<T>();
+            let item_size = std::mem::size_of::<D>();
             if item_size > self.size {
                 return Err(From::from(
                     format!("Tried to map MemFile to a too big type {}/{}", item_size, self.size)
@@ -240,7 +241,7 @@ impl MemFile {
             }
             let num_items: usize = self.size / item_size;
 
-            return Ok(os_impl::rlock_slice::<T>(meta, 0, num_items));
+            return Ok(meta.rlock_as_slice::<D>(0, num_items));
         } else {
             return Err(From::from("No file mapped to get lock on"));
         }
@@ -253,20 +254,20 @@ impl MemFile {
     /// let mut some_val = mem_file.wlock::<u32>().unwrap();
     /// *(*some_val) = 1;
     /// ```
-    pub fn wlock<T: MemFileCast>(&mut self) -> Result<MemFileWLock<T>> {
+    pub fn wlock<D: MemFileCast>(&mut self) -> Result<WriteLockGuard<D>> {
 
         //Make sure we have a file mapped
         if let Some(ref mut meta) = self.meta {
 
             //Make sure that we can cast our memory to the type
-            let type_size = std::mem::size_of::<T>();
+            let type_size = std::mem::size_of::<D>();
             if type_size > self.size {
                 return Err(From::from(
                     format!("Tried to map MemFile to a too big type {}/{}", type_size, self.size)
                 ));
             }
 
-            return Ok(os_impl::wlock::<T>(meta));
+            return Ok(meta.wlock::<D>());
         } else {
             return Err(From::from("No file mapped to get lock on"));
         }
@@ -280,13 +281,13 @@ impl MemFile {
     /// let write_buf = mem_file.wlock_as_slice::<u8>().unwrap();
     /// write_buf[0] = 0x1;
     /// ```
-    pub fn wlock_as_slice<T: MemFileCast>(&mut self) -> Result<MemFileWLockSlice<T>> {
+    pub fn wlock_as_slice<D: MemFileCast>(&mut self) -> Result<WriteLockGuardSlice<D>> {
 
         //Make sure we have a file mapped
         if let Some(ref mut meta) = self.meta {
 
             //Make sure that we can cast our memory to the slice
-            let item_size = std::mem::size_of::<T>();
+            let item_size = std::mem::size_of::<D>();
             if item_size > self.size {
                 return Err(From::from(
                     format!("Tried to map MemFile to a too big type {}/{}", item_size, self.size)
@@ -294,14 +295,14 @@ impl MemFile {
             }
             let num_items: usize = self.size / item_size;
 
-            return Ok(os_impl::wlock_slice::<T>(meta, 0, num_items));
+            return Ok(meta.wlock_as_slice::<D>(0, num_items));
         } else {
             return Err(From::from("No file mapped to get lock on"));
         }
     }
 }
 
-impl Drop for MemFile {
+impl<'a> Drop for MemFile<'a> {
     ///Deletes the MemFile artifacts
     fn drop(&mut self) {
         //Delete file on disk if we created it
@@ -377,69 +378,3 @@ unsafe impl MemFileCast for u32 {}
 unsafe impl MemFileCast for usize {}
 unsafe impl MemFileCast for f32 {}
 unsafe impl MemFileCast for f64 {}
-
-/* Read Locks */
-
-/// Non-exclusive read lock holding a reference to shared memory
-///
-/// To get an instance of this struct, see [rlock()](struct.MemFile.html#method.rlock)
-pub struct MemFileRLock<'a, T: 'a> {
-    data: &'a T,
-    lock: *mut c_void,
-}
-impl<'a, T> Drop for MemFileRLock<'a, T> { fn drop(&mut self) { os_impl::read_unlock(self.lock); } }
-impl<'a, T> Deref for MemFileRLock<'a, T> {
-    type Target = &'a T;
-    fn deref(&self) -> &Self::Target { &self.data }
-}
-
-/// Non-exclusive read lock holding a reference to a slice of shared memory
-///
-/// To get an instance of this struct, see [rlock_as_slice()](struct.MemFile.html#method.rlock_as_slice)
-pub struct MemFileRLockSlice<'a, T: 'a> {
-    data: &'a [T],
-    lock: *mut c_void,
-}
-impl<'a, T> Drop for MemFileRLockSlice<'a, T> { fn drop(&mut self) { os_impl::read_unlock(self.lock); } }
-impl<'a, T> Deref for MemFileRLockSlice<'a, T> {
-    type Target = &'a [T];
-    fn deref(&self) -> &Self::Target { &self.data }
-}
-
-/* Write Locks */
-
-/// Exclusive write lock holding a reference to shared memory
-///
-/// To get an instance of this struct, see [wlock()](struct.MemFile.html#method.wlock)
-pub struct MemFileWLock<'a, T: 'a> {
-    data: &'a mut T,
-    lock: *mut c_void,
-}
-impl<'a, T> Drop for MemFileWLock<'a, T> { fn drop(&mut self) { os_impl::write_unlock(self.lock); } }
-impl<'a, T> Deref for MemFileWLock<'a, T> {
-    type Target = &'a mut T;
-    fn deref(&self) -> &Self::Target { &self.data }
-}
-impl<'a, T> DerefMut for MemFileWLock<'a, T> {
-    fn deref_mut(&mut self) -> &mut &'a mut T {
-        &mut self.data
-    }
-}
-
-/// Exclusive write lock holding a reference to a slice of shared memory
-///
-/// To get an instance of this struct, see [wlock_as_slice()](struct.MemFile.html#method.wlock_as_slice)
-pub struct MemFileWLockSlice<'a, T: 'a> {
-    data: &'a mut [T],
-    lock: *mut c_void,
-}
-impl<'a, T> Drop for MemFileWLockSlice<'a, T> { fn drop(&mut self) { os_impl::write_unlock(self.lock); } }
-impl<'a, T> Deref for MemFileWLockSlice<'a, T> {
-    type Target = &'a mut [T];
-    fn deref(&self) -> &Self::Target { &self.data }
-}
-impl<'a, T> DerefMut for MemFileWLockSlice<'a, T> {
-    fn deref_mut(&mut self) -> &mut &'a mut [T] {
-        &mut self.data
-    }
-}
