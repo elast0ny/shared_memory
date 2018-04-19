@@ -228,11 +228,11 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
 //Creates a new MemFile, shm_open()s it then mmap()s it
 pub fn create(mut new_file: MemFile) -> Result<MemFile> {
 
-    // Try to infer the name of real_path
+    // real_path is either :
+    // 1. Specified directly
+    // 2. Needs to be generated (link_file needs to exist)
     let real_path: String = match new_file.real_path {
-        //User doesnt want link file, simply create shmem with real_path
         Some(ref path) => path.clone(),
-        //User is creating a MemFile with fs link
         None => {
             //We dont have a real path and a link file wasn created
             if let Some(ref file_path) = new_file.link_path {
@@ -261,26 +261,27 @@ pub fn create(mut new_file: MemFile) -> Result<MemFile> {
         }
     };
 
-    let mut meta: MemMetadata = MemMetadata {
-        owner: new_file.owner,
-        map_name: real_path,
-        map_fd: 0,
-        map_ctl: null_mut(),
-        map_size: 0,
-        map_data: null_mut(),
-    };
-
     //Create shared memory
     //TODO : Handle "File exists" errors when creating MemFile with new_file.link_path.is_some()
     //       When new_file.link_path.is_some(), we can figure out a real_path that doesnt collide with another
     //       and stick it in the link_file
-    meta.map_fd = match shm_open(
-        meta.map_name.as_str(), //Unique name that usualy pops up in /dev/shm/
+    let shmem_fd = match shm_open(
+        real_path.as_str(), //Unique name that usualy pops up in /dev/shm/
         OFlag::O_CREAT|OFlag::O_EXCL|OFlag::O_RDWR, //create exclusively (error if collision) and read/write to allow resize
         Mode::S_IRUSR|Mode::S_IWUSR //Permission allow user+rw
     ) {
         Ok(v) => v,
         Err(e) => return Err(From::from(format!("shm_open() failed with :\n{}", e))),
+    };
+
+    new_file.real_path = Some(real_path.clone());
+    let mut meta: MemMetadata = MemMetadata {
+        owner: new_file.owner,
+        map_name: real_path,
+        map_fd: shmem_fd,
+        map_ctl: null_mut(),
+        map_size: 0,
+        map_data: null_mut(),
     };
 
     //increase size to requested size + meta
@@ -326,6 +327,7 @@ pub fn create(mut new_file: MemFile) -> Result<MemFile> {
         meta.map_data = (map_addr as usize + size_of::<MemCtl>()) as *mut c_void;
     }
 
+    //Link the finalized metadata to the MemFile
     new_file.meta = Some(meta);
 
     Ok(new_file)
