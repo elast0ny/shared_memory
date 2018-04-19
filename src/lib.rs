@@ -158,14 +158,15 @@ impl MemFile {
         let created_file = os_impl::create(mem_file)?;
 
         //Write OS specific identifier in link file
-        {
-            let real_path: &String = created_file.real_path.as_ref().unwrap();
+        if let Some(ref real_path) = created_file.real_path {
             match cur_link.write(real_path.as_bytes()) {
                 Ok(write_sz) => if write_sz != real_path.as_bytes().len() {
                     return Err(From::from("Failed to write full contents info on disk"));
                 },
                 Err(_) => return Err(From::from("Failed to write info on disk")),
             };
+        } else {
+            panic!("os_impl::create() returned succesfully but didnt update MemFile::real_path() !");
         }
 
         Ok(created_file)
