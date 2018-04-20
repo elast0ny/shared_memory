@@ -1,7 +1,7 @@
 extern crate nix;
 extern crate libc;
 
-use super::{
+use super::{std,
     MemFile,
     LockType,
     LockNone,
@@ -30,7 +30,6 @@ use self::nix::sys::stat::{fstat, FileStat, Mode};
 use self::nix::fcntl::OFlag;
 use self::nix::unistd::{close, ftruncate};
 
-use std;
 use std::path::PathBuf;
 use std::os::raw::c_void;
 use std::os::unix::io::RawFd;
@@ -38,12 +37,6 @@ use std::ptr::{null_mut};
 use std::mem::size_of;
 
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
-
-///This struct lives insides the shared memory
-struct MemCtl {
-    ///Lock controlling the access to the mapping
-    rw_lock: pthread_rwlock_t,
-}
 
 pub struct MemMetadata<'a> {
 
@@ -127,20 +120,20 @@ pub fn open(mut new_file: MemFile, lock_type:LockType) -> Result<MemFile> {
 
     let map_metadata_sz: usize;
     //Use the proper lock type implementation
-    let mut meta: MemMetadata = match lock_type {
-            LockType::None => {
-                map_metadata_sz = 0; /* size_of::<LockShared>() */
-                MemMetadata {
-                    owner: new_file.owner,
-                    map_name: shmem_path,
-                    map_fd: 0,
-                    map_metadata: null_mut(),
-                    map_size: 0,
-                    data: null_mut(),
-                    lock: &LockNone{},
-                }
-            },
-           _ => unimplemented!("Linux only supports Rwlock as of now"),
+    let mut meta: MemMetadata = MemMetadata {
+        owner: new_file.owner,
+        map_name: shmem_path,
+        map_fd: 0,
+        map_metadata: null_mut(),
+        map_size: 0,
+        data: null_mut(),
+        lock: match lock_type {
+                LockType::None => {
+                    map_metadata_sz = 0; /* size_of::<LockShared>() */
+                    &LockNone{}
+                },
+                _ => unimplemented!("Linux only supports Rwlock for now"),
+            }
     };
 
     //Open shared memory
@@ -242,20 +235,20 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
 
     let map_metadata_sz: usize;
     //Use the proper lock type implementation
-    let mut meta: MemMetadata = match lock_type {
-            LockType::None => {
-                map_metadata_sz = 0; /* size_of::<LockShared>() */
-                MemMetadata {
-                    owner: new_file.owner,
-                    map_name: real_path,
-                    map_fd: shmem_fd,
-                    map_metadata: null_mut(),
-                    map_size: 0,
-                    data: null_mut(),
-                    lock: &LockNone{},
-                }
-            },
-           _ => unimplemented!("Linux only supports Rwlock as of now"),
+    let mut meta: MemMetadata = MemMetadata {
+        owner: new_file.owner,
+        map_name: real_path,
+        map_fd: shmem_fd,
+        map_metadata: null_mut(),
+        map_size: 0,
+        data: null_mut(),
+        lock: match lock_type {
+                LockType::None => {
+                    map_metadata_sz = 0; /* size_of::<LockShared>() */
+                    &LockNone{}
+                },
+                _ => unimplemented!("Linux only supports Rwlock for now"),
+            }
     };
 
     //increase size to requested size + meta
@@ -287,6 +280,7 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
         //Save the actual size of the mapping
         meta.map_size = actual_size;
 
+                /*
         let mut lock_attr: [u8; size_of::<pthread_rwlockattr_t>()] = [0; size_of::<pthread_rwlockattr_t>()];
 
         unsafe {
@@ -296,6 +290,7 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
             //Init the rwlock
             pthread_rwlock_init(&mut (*(meta.map_metadata as *mut MemCtl)).rw_lock, lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t);
         }
+        */
 
         //Init pointer to user data
         meta.data = (map_addr as usize + map_metadata_sz) as *mut c_void;
