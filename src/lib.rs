@@ -5,12 +5,12 @@
 //! ## Examples
 //! Creator based on examples/create.rs
 //! ```
-//! //Create a MemFile at `pwd`\test.txt of size 4096
-//! let mut mem_file: MemFile = match MemFile::create(PathBuf::from("test.txt"), 4096) {<...>};
+//! //Create a MemFile at `pwd`\shared_mem.link that links to a shared memory mapping of size 4096 and managed by a mutex.
+//! let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link") LockType::Mutex, 4096) {<...>};
 //! //Set explicit scope for the lock (no need to call drop(shared_data))
 //! {
 //!     //Acquire write lock
-//!     let mut shared_data = match mem_file.wlock_as_slice::<u8>() {<...>};
+//!     let mut shared_data = match mem_file.wlock_as_slice::<u8>().unwrap();
 //!     let src = b"Some string you want to share\x00";
 //!     //Write to the shared memory
 //!     shared_data[0..src.len()].copy_from_slice(src);
@@ -19,8 +19,8 @@
 //!
 //! Slave based on examples/open.rs
 //! ```
-// Open an existing MemFile from `pwd`\test.txt
-//! let mut mem_file: MemFile = match MemFile::open(PathBuf::from("test.txt")) {<...>};
+// Open an existing MemFile from `pwd`\shared_mem.link
+//! let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")).unwrap();;
 //! //Set explicit scope for the lock (no need to call drop(shared_data))
 //! {
 //!     //Acquire read lock
@@ -77,12 +77,13 @@ pub struct MemFile<'a> {
 impl<'a> MemFile<'a> {
     ///Opens an existing MemFile
     ///
-    /// This function takes a path to a link file created by create().
+    /// This function takes a path too a link file created by create().
+    /// Open() will automatically deduct the size and locking mechanisms.
     ///
     /// # Examples
     /// ```
     /// //Opens an existing shared MemFile named test.txt
-    /// let mut mem_file: MemFile = match MemFile::open(PathBuf::from("test.txt")) {
+    /// let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")) {
     ///     Ok(v) => v,
     ///     Err(e) => {
     ///         println!("Error : {}", e);
@@ -117,21 +118,24 @@ impl<'a> MemFile<'a> {
         //Open the shared memory using the real_path
         os_impl::open(mem_file)
     }
-    ///Opens an existing shared memory object by its OS specific identifier
+    ///Opens an existing shared memory mappping in raw mode.
+    ///This simply opens an existing mapping with no additionnal features (no locking, no metadata, etc...).
+    ///
+    ///This function is useful when using mappings not created by mem_file
     pub fn open_raw(_shmem_path: String) -> Result<MemFile<'a>> {
         unimplemented!("This is not implemented yet");
     }
     /// Creates a new MemFile
     ///
     /// This involves creating a "link" on disk specified by the first parameter.
-    /// This link contains the OS specific identifier to the shared memory. The usage of such link Files
-    /// on disk help manage identifier colisions. (Ie: a binary using the same argument to this function
+    /// This link contains the OS specific identifier to the shared memory. The usage of such link files
+    /// on disk help manage identifier colisions. (ie: a binary using the same argument to this function
     /// can be ran from different directories without worrying about collisions)
     ///
     /// # Examples
     /// ```
-    /// //Creates a new shared MemFile named test.txt of size 4096
-    /// let mut mem_file: MemFile = match MemFile::create(PathBuf::from("test.txt"), 4096) {
+    /// //Creates a new shared MemFile named shared_mem.link of size 4096
+    /// let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link"), LockType::Mutex, 4096) {
     ///     Ok(v) => v,
     ///     Err(e) => {
     ///         println!("Error : {}", e);
@@ -374,7 +378,7 @@ impl<'a> Drop for MemFile<'a> {
 /// * Does my type have any pointers in its internal representation ?
 ///    * This is important because pointers in your type need to also point to the shared memory for it to be usable by other processes
 /// * Can my type resize its contents ?
-///    * If so, the type probably cannot be safely used over shared memory because your type might call Alloc/Free on a shared memory addresses
+///    * If so, the type probably cannot be safely used over shared memory because your type might call alloc/realloc/free on shared memory addresses
 /// * Does my type allow for initialisation after instantiation ?
 ///    * A [R|W]lock to the shared memory returns a reference to your type. That means that any use of that reference assumes that the type was properly initialized.
 ///
