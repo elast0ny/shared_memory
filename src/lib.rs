@@ -56,6 +56,7 @@ use std::path::PathBuf;
 use std::fs::{File};
 use std::io::{Write, Read};
 use std::fs::remove_file;
+use std::slice;
 
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
@@ -90,7 +91,7 @@ impl<'a> MemFile<'a> {
     ///     }
     /// };
     /// ```
-    pub fn open(existing_link_path: PathBuf, lock_type: LockType) -> Result<MemFile<'a>> {
+    pub fn open(existing_link_path: PathBuf) -> Result<MemFile<'a>> {
 
         // Make sure the link file exists
         if !existing_link_path.is_file() {
@@ -114,7 +115,7 @@ impl<'a> MemFile<'a> {
         }
 
         //Open the shared memory using the real_path
-        os_impl::open(mem_file, lock_type)
+        os_impl::open(mem_file)
     }
     ///Opens an existing shared memory object by its OS specific identifier
     pub fn open_raw(_shmem_path: String) -> Result<MemFile<'a>> {
@@ -170,12 +171,19 @@ impl<'a> MemFile<'a> {
             panic!("os_impl::create() returned succesfully but didnt update MemFile::real_path() !");
         }
 
+        //Initialize the locking mechanism on the shared memory
+        {
+            let meta_data = created_file.meta.as_ref().unwrap();
+            meta_data.lock_impl.init(meta_data.lock_data)?;
+        }
+
         Ok(created_file)
     }
     ///Creates a shared memory object
     pub fn create_raw(_shmem_path: String) -> Result<MemFile<'a>> {
         unimplemented!("This is not implemented yet");
     }
+
     ///Returns the size of the MemFile
     pub fn get_size(&self) -> &usize {
         &self.size
@@ -192,6 +200,7 @@ impl<'a> MemFile<'a> {
     pub fn get_real_path(&self) -> Option<&String> {
         self.real_path.as_ref()
     }
+
     ///Returns a non-exclusive read lock to the shared memory
     ///
     /// # Examples
@@ -213,7 +222,16 @@ impl<'a> MemFile<'a> {
                     format!("Tried to map MemFile to a too big type {}/{}", type_size, self.size)
                 ));
             }
-            return Ok(meta.rlock::<D>());
+
+            //Return data wrapped in a lock
+            Ok(unsafe {
+                ReadLockGuard::lock(
+                    &(*(meta.data as *const D)),
+                    meta.lock_impl,
+                    &mut (*meta.lock_data),
+                )
+            })
+
         } else {
             return Err(From::from("No file mapped to get lock on"));
         }
@@ -241,7 +259,15 @@ impl<'a> MemFile<'a> {
             }
             let num_items: usize = self.size / item_size;
 
-            return Ok(meta.rlock_as_slice::<D>(0, num_items));
+            //Return data wrapped in a lock
+            Ok(unsafe {
+                ReadLockGuardSlice::lock(
+                    slice::from_raw_parts((meta.data as usize + 0) as *const D, num_items),
+                    meta.lock_impl,
+                    &mut (*meta.lock_data),
+                )
+            })
+
         } else {
             return Err(From::from("No file mapped to get lock on"));
         }
@@ -267,7 +293,15 @@ impl<'a> MemFile<'a> {
                 ));
             }
 
-            return Ok(meta.wlock::<D>());
+            //Return data wrapped in a lock
+            Ok(unsafe {
+                WriteLockGuard::lock(
+                    &mut (*(meta.data as *mut D)),
+                    meta.lock_impl,
+                    &mut (*meta.lock_data),
+                )
+            })
+
         } else {
             return Err(From::from("No file mapped to get lock on"));
         }
@@ -295,7 +329,14 @@ impl<'a> MemFile<'a> {
             }
             let num_items: usize = self.size / item_size;
 
-            return Ok(meta.wlock_as_slice::<D>(0, num_items));
+            //Return data wrapped in a lock
+            Ok(unsafe {
+                WriteLockGuardSlice::lock(
+                    slice::from_raw_parts_mut((meta.data as usize + 0) as *mut D, num_items),
+                    meta.lock_impl,
+                    &mut (*meta.lock_data),
+                )
+            })
         } else {
             return Err(From::from("No file mapped to get lock on"));
         }

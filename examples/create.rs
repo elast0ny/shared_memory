@@ -12,7 +12,7 @@ unsafe impl MemFileCast for SharedState {}
 fn main() {
 
     //Create a new shared MemFile
-    let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link"),  LockType::None, 4096) {
+    let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link"),  LockType::Rwlock, 4096) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);
