@@ -8,28 +8,14 @@ pub enum LockType {
     None,
 }
 
-#[doc(hidden)] pub struct LockNone {}
-#[doc(hidden)] impl MemFileLockImpl for LockNone {
-    fn init(&self, _lock_data: *mut c_void) -> Result<()> {
-        Ok(())
-    }
-    fn size_of() -> usize {
-        0
-    }
-    fn rlock(&self, _lock_data: *mut c_void) -> Result<()> {
-        println!("Read lock acquired !");
-        Ok(())
-    }
-    fn wlock(&self, _lock_data: *mut c_void) -> Result<()> {
-        println!("Write lock acquired !");
-        Ok(())
-    }
-    fn runlock(&self, _lock_data: *mut c_void) -> () {
-        println!("Read lock released !");
-    }
-    fn wunlock(&self, _lock_data: *mut c_void) -> () {
-        println!("Write lock released !");
-    }
+pub struct LockNone {}
+impl MemFileLockImpl for LockNone {
+    fn init(&self, _lock_data: *mut c_void) -> Result<()> {Ok(())}
+    fn size_of() -> usize {0}
+    fn rlock(&self, _lock_data: *mut c_void) -> Result<()> {Ok(())}
+    fn wlock(&self, _lock_data: *mut c_void) -> Result<()> {Ok(())}
+    fn runlock(&self, _lock_data: *mut c_void) -> () {}
+    fn wunlock(&self, _lock_data: *mut c_void) -> () {}
 }
 
 ///Plublic traits that custom locks need to implement

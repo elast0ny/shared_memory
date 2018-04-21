@@ -1,11 +1,5 @@
 extern crate winapi;
 
-use super::{std,
-    MemFile,
-    LockType,
-    LockNone,
-    MemFileLockable};
-
 use self::winapi::shared::ntdef::{NULL};
 use self::winapi::shared::minwindef::{FALSE};
 use self::winapi::um::winbase::*;
@@ -13,6 +7,13 @@ use self::winapi::um::winnt::*;
 use self::winapi::um::handleapi::*;
 use self::winapi::um::memoryapi::*;
 use self::winapi::um::errhandlingapi::*;
+
+use super::{std,
+    MemFile,
+    LockType,
+    LockNone,
+    MemFileLockImpl,
+};
 
 use std::path::PathBuf;
 use std::mem::size_of;
@@ -22,26 +23,53 @@ use std::os::raw::c_void;
 
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
+//Theres probably a macro that would do this for me ?
+fn ind_to_locktype(ind: &usize) -> LockType {
+    match *ind {
+        0 => LockType::None,
+        1 => LockType::Mutex,
+        2 => LockType::Rwlock,
+        _ => LockType::None,
+    }
+}
+fn locktype_to_ind(lock_type: &LockType) -> usize {
+    match *lock_type {
+        LockType::None => 0,
+        LockType::Mutex => 1,
+        LockType::Rwlock => 2,
+    }
+}
+
+
+struct SharedData {
+    //This field is used to transmit the locking mechanism to an openner
+    lock_ind: u8,
+    mapping_size: usize,
+}
+
 ///This struct describes our memory mapping
 pub struct MemMetadata<'a> {
 
     /* Optionnal implementation fields */
 
     ///Name of mapping
-    map_name: String,
+    /* Windows doesnt care about this */
+    //map_name: String,
     ///Handle of mapping
     map_handle: HANDLE,
     ///Hold data to control the mapping (locks)
-    map_metadata: *mut c_void,
+    shared_data: *mut SharedData,
     ///Holds the actual sizer of the mapping
-    map_size: usize,
+    /* Windows doesnt care about this */
+    //map_size: usize,
 
     /* Mandatory fields */
-
+    ///the shared memory for our lock
+    pub lock_data: *mut c_void,
     ///Pointer to user data
     pub data: *mut c_void,
     //Our custom lock implementation
-    pub lock : &'a MemFileLockable,
+    pub lock_impl : &'a MemFileLockImpl,
 }
 
 /*
@@ -78,8 +106,8 @@ impl<'a> Drop for MemMetadata<'a> {
     ///Takes care of properly closing the MemFile (munmap(), shmem_unlink(), close())
     fn drop(&mut self) {
         //Unmap memory from our process
-        if self.map_metadata as *mut _ == NULL {
-            unsafe { UnmapViewOfFile(self.map_metadata as *mut _); }
+        if self.shared_data as *mut _ == NULL {
+            unsafe { UnmapViewOfFile(self.shared_data as *mut _); }
         }
 
         //Close our mapping
@@ -90,7 +118,7 @@ impl<'a> Drop for MemMetadata<'a> {
 }
 
 //Opens an existing MemFile, OpenFileMappingA()/MapViewOfFile()/VirtualQuery()
-pub fn open(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
+pub fn open(mut new_file: MemFile) -> Result<MemFile> {
 
     // Get the shmem path
     let mapping_path = match new_file.real_path {
@@ -100,53 +128,39 @@ pub fn open(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
         },
     };
 
-    let map_metadata_sz: usize;
-    //Use the proper lock type implementation
-    let mut meta: MemMetadata = MemMetadata {
-        map_name: mapping_path,
-        map_handle: null_mut(),
-        map_metadata: null_mut(),
-        map_size: 0,
-        data: null_mut(),
-        lock: match lock_type {
-                LockType::None => {
-                    map_metadata_sz = 0; /* size_of::<LockShared>() */
-                    &LockNone{}
-                },
-                _ => unimplemented!("Windows only supports LockNone as of now"),
-            }
-    };
-
     //Open file specified by namespace
-    unsafe {
-        meta.map_handle = OpenFileMappingA(
+    let map_handle = unsafe {
+        OpenFileMappingA(
             FILE_MAP_READ| FILE_MAP_WRITE,
             FALSE,
-            CString::new(meta.map_name.clone())?.as_ptr()
-        );
-    }
+            CString::new(mapping_path.clone())?.as_ptr()
+        )
+    };
 
-    if meta.map_handle as *mut _ == NULL {
+    if map_handle as *mut _ == NULL {
         return Err(From::from(format!("CreateFileMappingA failed with {}", unsafe{GetLastError()})));
     }
 
+    new_file.real_path = Some(mapping_path.clone());
+
     //Map file to our process memory
-    unsafe {
-        meta.map_metadata = MapViewOfFile(
-            meta.map_handle,
+    let map_addr = unsafe {
+        MapViewOfFile(
+            map_handle,
             FILE_MAP_READ| FILE_MAP_WRITE,
             0,
             0,
             0
-        ) as *mut _;
-    }
+        )
+    };
 
-    if meta.map_metadata as *mut _ == NULL {
+    if map_addr == NULL {
+        unsafe { CloseHandle(map_handle); }
         return Err(From::from(format!("MapViewOfFile failed with {}", unsafe{GetLastError()})));
     }
 
     //Get the size of our mapping
-    meta.map_size = unsafe {
+    let full_size = unsafe {
         let mut mem_ba: MEMORY_BASIC_INFORMATION = MEMORY_BASIC_INFORMATION {
             BaseAddress: null_mut(),
             AllocationBase: null_mut(),
@@ -157,23 +171,47 @@ pub fn open(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
             Type: 0,
         };
         let ret_val = VirtualQuery(
-            meta.map_metadata as *const _,
+            map_addr as *const _,
             &mut mem_ba as *mut _,
             size_of::<MEMORY_BASIC_INFORMATION>()
         );
-
+        //Couldnt get mapping size
         if ret_val == 0 {
+            UnmapViewOfFile(map_addr);
+            CloseHandle(map_handle);
             return Err(From::from(format!("VirtualQuery failed with {}", GetLastError())));
         }
 
         mem_ba.RegionSize
     };
 
-    //new_file.size = unsafe {(*(meta.map_metadata as *mut SharedMeta)).req_size};
+    //Figure out what the lock type is based on the shared_data set by create()
+    let shared_data: &SharedData = unsafe {&(*(map_addr as *mut SharedData))};
+    let lock_ind = shared_data.lock_ind;
+    let lock_type: LockType = ind_to_locktype(&(lock_ind as usize));
 
-    new_file.size = meta.map_size - map_metadata_sz;
+    //Ensure our shared data is 4 byte aligned
+    let shared_data_sz = (size_of::<SharedData>() + 3) & !(0x03 as usize);
+    let lock_data_sz = get_supported_lock_size(&lock_type);
 
-    meta.data = (meta.map_metadata as usize + map_metadata_sz) as *mut c_void;
+    //Use the proper lock type implementation
+    let meta: MemMetadata = MemMetadata {
+        //map_name: mapping_path,
+        map_handle: map_handle,
+        //map_size: full_size,
+        shared_data: map_addr as *mut SharedData,
+        lock_data: (map_addr as usize + shared_data_sz) as *mut _,
+        data: (map_addr as usize + shared_data_sz + lock_data_sz) as *mut c_void,
+        lock_impl: get_supported_lock(&lock_type),//get_supported_lock(&lock_type),
+    };
+
+    //Pick the smallest size
+    if full_size > shared_data.mapping_size {
+        new_file.size = shared_data.mapping_size;
+    } else {
+        new_file.size = full_size - shared_data_sz - lock_data_sz;
+    }
+
     new_file.meta = Some(meta);
 
     Ok(new_file)
@@ -216,67 +254,80 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
         }
     };
 
+    //Get the total size with all the added metadata
+    let shared_data_sz = (size_of::<SharedData>() + 3) & !(0x03 as usize);
+    let lock_data_sz: usize = get_supported_lock_size(&lock_type);
+    let actual_size: usize = new_file.size + lock_data_sz + shared_data_sz;
+
     //Create mapping and map to our address space
-    let map_handle;
-    unsafe {
-        let full_size: u64 = (new_file.size + size_of::<MemMetadata>()) as u64;
-        let high_size: u32 = (full_size & 0xFFFFFFFF00000000 as u64) as u32;
-        let low_size: u32 = (full_size & 0xFFFFFFFF as u64) as u32;
-        println!("CreateFileMapping({})", real_path);
-        map_handle = CreateFileMappingA(
+    let map_handle = unsafe {
+        let high_size: u32 = (actual_size as u64 & 0xFFFFFFFF00000000 as u64) as u32;
+        let low_size: u32 = (actual_size as u64 & 0xFFFFFFFF as u64) as u32;
+        CreateFileMappingA(
             INVALID_HANDLE_VALUE,
             null_mut(),
             PAGE_READWRITE,
             high_size,
             low_size,
-            CString::new(real_path.clone())?.as_ptr());
-    }
-
+            CString::new(real_path.clone())?.as_ptr())
+    };
     if map_handle == NULL {
         return Err(From::from(format!("CreateFileMappingA failed with {}", unsafe{GetLastError()})));
     }
 
     new_file.real_path = Some(real_path.clone());
 
-    let map_metadata_sz: usize;
-    //Use the proper lock type implementation
-    let mut meta: MemMetadata = MemMetadata {
-        map_name: real_path,
-        map_handle: map_handle,
-        map_metadata: null_mut(),
-        map_size: 0,
-        data: null_mut(),
-        lock: match lock_type {
-                LockType::None => {
-                    map_metadata_sz = 0; /* size_of::<LockShared>() */
-                    &LockNone{}
-                },
-                _ => unimplemented!("Windows only supports LockNone as of now"),
-            }
-    };
-
-    unsafe {
-        meta.map_metadata = MapViewOfFile(
-            meta.map_handle,
+    let map_addr = unsafe {
+        MapViewOfFile(
+            map_handle,
             FILE_MAP_READ| FILE_MAP_WRITE,
             0,
             0,
             0
-        ) as *mut _;
-    }
-
-    if meta.map_metadata as *mut _ == NULL {
+        )
+    };
+    if map_addr == NULL {
+        unsafe { CloseHandle(map_handle); }
         return Err(From::from(format!("MapViewOfFile failed with {}", unsafe{GetLastError()})));
     }
 
-    //initialize lock
-    //TODO : Figure out what kind of lock to use for windows
+    let meta = MemMetadata {
+        //map_name: real_path,
+        map_handle: map_handle,
+        //map_size: actual_size,
+        shared_data: map_addr as *mut SharedData,
+        lock_data: (map_addr as usize + shared_data_sz) as *mut _,
+        data: (map_addr as usize + shared_data_sz + lock_data_sz) as *mut c_void,
+        lock_impl: get_supported_lock(&lock_type),
+    };
 
+    let shared_data: &mut SharedData = unsafe {
+        &mut (*meta.shared_data)
+    };
 
-    //Init pointer to user data
-    meta.map_size = new_file.size + map_metadata_sz;
-    meta.data = (meta.map_metadata as usize + map_metadata_sz) as *mut c_void;
+    //Set the lock type and mapping size
+    shared_data.lock_ind = locktype_to_ind(&lock_type) as u8;
+    shared_data.mapping_size = new_file.size;
 
     new_file.meta = Some(meta);
+
     Ok(new_file)
+}
+
+//Returns the size we need to allocate in the shared memory for our lock
+fn get_supported_lock_size(lock_type: &LockType) -> usize {
+    match lock_type {
+        &LockType::None => LockNone::size_of(),
+        //&LockType::Rwlock => RwLock::size_of(),
+        _ => unimplemented!("Windows does not support this lock type..."),
+    }
+}
+
+//Returns a boxed trait that implements MemFileLockImpl for the specified type
+fn get_supported_lock(lock_type: &LockType) -> &'static MemFileLockImpl {
+    match lock_type {
+        &LockType::None => &LockNone{},
+        //&LockType::Rwlock => &RwLock{},
+        _ => unimplemented!("Windows does not support this lock type..."),
+    }
 }

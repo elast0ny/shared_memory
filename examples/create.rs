@@ -11,8 +11,13 @@ unsafe impl MemFileCast for SharedState {}
 
 fn main() {
 
+    #[cfg(unix)]
+    let lock_type = LockType::Rwlock;
+    #[cfg(windows)]
+    let lock_type = LockType::None;
+
     //Create a new shared MemFile
-    let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link"),  LockType::Rwlock, 4096) {
+    let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link"),  lock_type, 4096) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);
@@ -20,6 +25,13 @@ fn main() {
             return;
         }
     };
+
+    println!("Created link file \"{}
+    Backed by OS namespace : \"{}\"
+    Size : 0x{:x}",
+    mem_file.get_link_path().unwrap().to_string_lossy(),
+    mem_file.get_real_path().unwrap(),
+    mem_file.get_size());
 
     //Initialize the MemFile with default values
     {

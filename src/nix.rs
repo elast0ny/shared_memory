@@ -1,12 +1,5 @@
-extern crate nix;
 extern crate libc;
-
-use super::{std,
-    MemFile,
-    LockType,
-    LockNone,
-    MemFileLockImpl,
-};
+extern crate nix;
 
 use self::libc::{
     pthread_rwlock_t,
@@ -28,6 +21,13 @@ use self::nix::sys::mman::{mmap, munmap, shm_open, shm_unlink, ProtFlags, MapFla
 use self::nix::sys::stat::{fstat, FileStat, Mode};
 use self::nix::fcntl::OFlag;
 use self::nix::unistd::{close, ftruncate};
+
+use super::{std,
+    MemFile,
+    LockType,
+    LockNone,
+    MemFileLockImpl,
+};
 
 use std::path::PathBuf;
 use std::os::raw::c_void;
@@ -150,6 +150,9 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
         Ok(v) => v,
         Err(e) => return Err(From::from(format!("shm_open() failed with :\n{}", e))),
     };
+
+    new_file.real_path = Some(shmem_path.clone());
+
     //Get mmap size
     let file_stat: FileStat = match fstat(map_fd) {
         Ok(v) => v,
