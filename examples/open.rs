@@ -26,7 +26,7 @@ fn main() {
     };
 
     println!("Openned link file \"{}
-    Backed by OS namespace : \"{}\"
+    Backed by OS identifier : \"{}\"
     Size : 0x{:x}",
     mem_file.get_link_path().unwrap().to_string_lossy(),
     mem_file.get_real_path().unwrap(),

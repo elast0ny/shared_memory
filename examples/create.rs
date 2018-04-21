@@ -27,13 +27,13 @@ fn main() {
     };
 
     println!("Created link file \"{}
-    Backed by OS namespace : \"{}\"
+    Backed by OS identifier : \"{}\"
     Size : 0x{:x}",
     mem_file.get_link_path().unwrap().to_string_lossy(),
     mem_file.get_real_path().unwrap(),
     mem_file.get_size());
 
-    //Initialize the MemFile with default values
+    //Initialize the memory with default values
     {
         let mut shared_state: WriteLockGuard<SharedState> = match mem_file.wlock() {
             Ok(v) => v,
