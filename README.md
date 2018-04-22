@@ -2,34 +2,38 @@
 
 Provides a wrapper around native shared memory for [Linux](http://man7.org/linux/man-pages/man7/shm_overview.7.html) and [Windows](http://lmgtfy.com/?q=shared+memory+windows).
 
-This crate is ideal if you need to share large amounts of data with another process purely through memory.
+This crate provides a simple interface to shared memory OS APIs.
+
+Shared memory is well suited for sharing large amounts of data between processes as it relies purely on memory accesses. Other than when managing concurent access through locks/events, reading and writing memory from a MemFile relies only on CPU features (the operating system is not involved, no context switches like system calls, etc...).
 
 [Documentation](https://docs.rs/mem_file/) | [crates.io](https://crates.io/crates/mem_file)
 
 ## Usage
 
-Creator based on [examples/create.rs](examples/create.rs)
+Writer based on [examples/create.rs](examples/create.rs)
 ``` rust
-//Create a MemFile at `pwd`\test.txt of size 4096
-let mut mem_file: MemFile = match MemFile::create(PathBuf::from("test.txt"), 4096) {<...>};
-//Set explicit scope for the lock (no need to call drop(shared_data))
+//Creates a new MemFile link "shared_mem.link" that points to shared memory of size 4096
+let mut mem_file: MemFile = match MemFile::create(
+  PathBuf::from("shared_mem.link"),
+  LockType::Mutex, //Concurent accesses will be managed by a mutex
+  4096
+).unwrap();
+
+//Acquire write lock
 {
-   //Acquire write lock
-   let mut shared_data = match mem_file.wlock_as_slice::<u8>() {<...>};
-   let src = b"Some string you want to share\x00";
-   //Write to the shared memory
-   shared_data[0..src.len()].copy_from_slice(src);
+    let mut shared_data: WriteLockGuardSlice<u8> = match mem_file.wlock_as_slice().unwrap();
+    let src = b"Hello World !\x00";
+    shared_data[0..src.len()].copy_from_slice(src);
 }
 ```
 
-Slave based on [examples/open.rs](examples/open.rs)
+Reader based on [examples/open.rs](examples/open.rs)
 ``` rust
-// Open an existing MemFile from `pwd`\test.txt
-let mut mem_file: MemFile = match MemFile::open(PathBuf::from("test.txt")) {<...>};
-//Set explicit scope for the lock (no need to call drop(shared_data))
+// Open an existing MemFile link named "shared_mem.link"
+let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")).unwrap();
+//Aquire Read lock
 {
-   //Acquire read lock
-   let mut shared_data = match mem_file.rlock_as_slice::<u8>() {<...>};
+   let mut shared_data = match mem_file.rlock_as_slice::<u8>().unwrap();
    //Print the content of the shared memory as chars
    for byte in &shared_data[0..256] {
        if *byte == 0 { break; }
@@ -40,12 +44,8 @@ let mut mem_file: MemFile = match MemFile::open(PathBuf::from("test.txt")) {<...
 
 ## License
 
-Licensed under either of
-
  * [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
  * [MIT license](http://opensource.org/licenses/MIT)
-
-at your option.
 
 ## Contribution
 
