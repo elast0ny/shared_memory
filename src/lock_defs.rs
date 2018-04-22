@@ -6,7 +6,7 @@ use std::os::raw::c_void;
 ///List of all possible locking mechanisms.
 ///Some OS implementations might not implement all of the possible lock types in this enum.
 pub enum LockType {
-    ///Only one reader/writer can hold this lock at once
+    ///Only one reader or writer can hold this lock at once
     Mutex,
     ///Multiple readers can access the data. Writer access is exclusive.
     Rwlock,
