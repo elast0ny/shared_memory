@@ -49,8 +49,8 @@ cfg_if! {
     }
 }
 
-mod lock_defs;
-pub use lock_defs::*;
+mod locking;
+pub use locking::*;
 
 use std::path::PathBuf;
 use std::fs::{File};

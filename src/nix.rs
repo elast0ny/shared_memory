@@ -42,7 +42,7 @@ fn ind_to_locktype(ind: &usize) -> LockType {
     match *ind {
         0 => LockType::None,
         1 => LockType::Mutex,
-        2 => LockType::Rwlock,
+        2 => LockType::RwLock,
         _ => LockType::None,
     }
 }
@@ -50,7 +50,7 @@ fn locktype_to_ind(lock_type: &LockType) -> usize {
     match *lock_type {
         LockType::None => 0,
         LockType::Mutex => 1,
-        LockType::Rwlock => 2,
+        LockType::RwLock => 2,
     }
 }
 
@@ -316,7 +316,7 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
 fn get_supported_lock_size(lock_type: &LockType) -> usize {
     match lock_type {
         &LockType::None => LockNone::size_of(),
-        &LockType::Rwlock => RwLock::size_of(),
+        &LockType::RwLock => RwLock::size_of(),
         _ => unimplemented!("Linux does not support this lock type..."),
     }
 }
@@ -325,7 +325,7 @@ fn get_supported_lock_size(lock_type: &LockType) -> usize {
 fn get_supported_lock(lock_type: &LockType) -> &'static MemFileLockImpl {
     match lock_type {
         &LockType::None => &LockNone{},
-        &LockType::Rwlock => &RwLock{},
+        &LockType::RwLock => &RwLock{},
         _ => unimplemented!("Linux does not support this lock type..."),
     }
 }
