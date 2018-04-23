@@ -12,7 +12,7 @@ unsafe impl MemFileCast for SharedState {}
 fn main() {
 
     #[cfg(unix)]
-    let lock_type = LockType::Rwlock;
+    let lock_type = LockType::RwLock;
     #[cfg(windows)]
     let lock_type = LockType::None;
 
