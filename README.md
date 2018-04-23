@@ -1,7 +1,5 @@
 # mem_file
 
-Provides a wrapper around native shared memory for [Linux](http://man7.org/linux/man-pages/man7/shm_overview.7.html) and [Windows](http://lmgtfy.com/?q=shared+memory+windows).
-
 This crate provides a simple interface to shared memory OS APIs.
 
 Shared memory is well suited for sharing large amounts of data between processes as it relies purely on memory accesses. Other than when managing concurent access through locks/events, reading and writing memory from a MemFile relies only on CPU features (the operating system is not involved, no context switches like system calls, etc...).
@@ -41,6 +39,16 @@ let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")
    }
 }
 ```
+
+## Operating System Support
+
+| Feature| Description | Linux | Windows|  Mac |
+|--------|-------------|:-----:|:------:|:----:|
+|MemFile.create/open|Create/open a MemFile|✔|✔|X|
+|MemFile.*_raw|Create/open a raw shared memory map|X|X|X|
+|LockType::Mutex|Mutually exclusive lock|X|X|X|
+|LockType::RwLock|Exlusive write/shared read|✔|X|X|
+
 
 ## License
 
