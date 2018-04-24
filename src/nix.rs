@@ -37,23 +37,7 @@ use std::mem::size_of;
 
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
-//Theres probably a macro that would do this for me ?
-fn ind_to_locktype(ind: &usize) -> LockType {
-    match *ind {
-        0 => LockType::None,
-        1 => LockType::Mutex,
-        2 => LockType::RwLock,
-        _ => LockType::None,
-    }
-}
-fn locktype_to_ind(lock_type: &LockType) -> usize {
-    match *lock_type {
-        LockType::None => 0,
-        LockType::Mutex => 1,
-        LockType::RwLock => 2,
-    }
-}
-
+//This struct will live in the shared memory
 struct SharedData {
     //This field is used to transmit the locking mechanism to an openner
     lock_ind: u8,
@@ -63,7 +47,7 @@ pub struct MemMetadata<'a> {
 
     /* Optionnal implementation fields */
 
-    ///True if we created the mapping
+    ///True if we created the mapping. Need to shm_unlink when we own the link
     owner: bool,
     ///Linux specific shared AsMut
     shared_data: *mut SharedData,
@@ -133,6 +117,10 @@ impl<'a> Drop for MemMetadata<'a> {
 //Opens an existing MemFile, shm_open()s it then mmap()s it
 pub fn open(mut new_file: MemFile) -> Result<MemFile> {
 
+
+    //If there is a link file, this isnt a raw mapping
+    let is_raw: bool = !new_file.link_path.is_some();
+
     // Get the shmem path
     let shmem_path = match new_file.real_path {
         Some(ref path) => path.clone(),
@@ -140,6 +128,8 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
             panic!("Tried to open MemFile with no real_path");
         },
     };
+
+    println!("Openning shared mem \"{}\"", shmem_path);
 
     //Open shared memory
     let map_fd = match shm_open(
@@ -178,15 +168,35 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
         },
     };
 
+    //Return memfile with no meta data or locks
+    if is_raw {
+        new_file.size = file_stat.st_size as usize;
+        new_file.meta = Some(
+            MemMetadata {
+                owner: false,
+                map_name: shmem_path,
+                map_fd: map_fd,
+                map_size: new_file.size,
+                shared_data: map_addr as *mut SharedData,
+                lock_data: null_mut(),
+                data: map_addr as *mut c_void,
+                lock_impl: &LockNone {},
+            }
+        );
+
+        return Ok(new_file);
+    }
+
     //Figure out what the lock type is based on the shared_data set by create()
-    let lock_ind = unsafe {(*(map_addr as *mut SharedData)).lock_ind};
-    let lock_type: LockType = ind_to_locktype(&(lock_ind as usize));
+    let shared_data: &SharedData = unsafe {&(*(map_addr as *mut SharedData))};
+    let lock_info = supported_locktype_from_ind(shared_data.lock_ind as usize);
+    let lock_type: LockType = lock_info.0;
 
     //Ensure our shared data is 4 byte aligned
     let shared_data_sz = (size_of::<SharedData>() + 3) & !(0x03 as usize);
-    let lock_data_sz = get_supported_lock_size(&lock_type);
+    let lock_data_sz = lock_info.1;
 
-    let meta: MemMetadata = MemMetadata {
+    let mut meta: MemMetadata = MemMetadata {
         owner: false,
         map_name: shmem_path,
         map_fd: map_fd,
@@ -194,14 +204,24 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
         shared_data: map_addr as *mut SharedData,
         lock_data: (map_addr as usize + shared_data_sz) as *mut _,
         data: (map_addr as usize + shared_data_sz + lock_data_sz) as *mut c_void,
-        lock_impl: get_supported_lock(&lock_type),//get_supported_lock(&lock_type),
+        lock_impl: &LockNone{},
     };
-
+    //Set the proper user data size considering our metadata
     new_file.size = meta.map_size - shared_data_sz - lock_data_sz;
+
+
+    //Set the proper lock handlers
+    match lock_type {
+        LockType::None => {},
+        LockType::Mutex => {},
+        LockType::RwLock => {
+            //Lock should be initialized by AsMut
+            meta.lock_impl = &RwLock{};
+        },
+    };
 
     //This meta struct is now link to the MemFile
     new_file.meta = Some(meta);
-
 
     Ok(new_file)
 }
@@ -212,44 +232,49 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
     // real_path is either :
     // 1. Specified directly
     // 2. Needs to be generated (link_file needs to exist)
-    let real_path: String = match new_file.real_path {
-        Some(ref path) => path.clone(),
-        None => {
-            //We dont have a real path and a link file wasn created
-            if let Some(ref file_path) = new_file.link_path {
-                if !file_path.is_file() {
-                    return Err(From::from("os_impl::create() on a link but not link file exists..."));
-                }
 
-                //Get unique name for shmem object
-                let abs_disk_path: PathBuf = file_path.canonicalize()?;
-                let chars = abs_disk_path.to_string_lossy();
-                let mut unique_name: String = String::with_capacity(chars.len());
-                let mut chars = chars.chars();
-                chars.next();
-                unique_name.push('/');
-                for c in chars {
-                    match c {
-                        '/' | '.' => unique_name.push('_'),
-                        v => unique_name.push(v),
-                    };
-                }
-                unique_name
-            } else {
-                //lib.rs shouldnt call us without either real_path or link_path set
-                panic!("Trying to create MemFile without any name");
-            }
+    let is_raw = new_file.real_path.is_some();
+    let real_path: String;
+    //The user specified a real_path (raw mode)
+    if is_raw {
+        real_path = new_file.real_path.as_ref().unwrap().clone();
+    //We will generate our our real_path
+    } else {
+        let link_path: &PathBuf = match new_file.link_path {
+            Some(ref path) => path,
+            None => panic!("Trying to create MemFile without link_path set"),
+        };
+
+        let abs_disk_path: PathBuf = link_path.canonicalize()?;
+        let chars = abs_disk_path.to_string_lossy();
+        let mut unique_name: String = String::with_capacity(chars.len());
+        let mut chars = chars.chars();
+        chars.next();
+        unique_name.push('/');
+        for c in chars {
+            match c {
+                '/' | '.' => unique_name.push('_'),
+                v => unique_name.push(v),
+            };
         }
-    };
+        real_path = unique_name;
+    }
 
-    //Get the total size with all the added metadata
-    let shared_data_sz = (size_of::<SharedData>() + 3) & !(0x03 as usize);
-    let lock_data_sz: usize = get_supported_lock_size(&lock_type);
+    //Make sure we support this LockType
+    let locktype_info = supported_locktype_info(&lock_type);
+
+    let mut shared_data_sz: usize = 0;
+    let mut lock_ind: u8 = 0;
+    let mut lock_data_sz: usize = 0;
+
+    //Set our meta data sizes if this is not a raw memfile
+    if !is_raw {
+        shared_data_sz = (size_of::<SharedData>() + 3) & !(0x03 as usize);
+        lock_ind = locktype_info.0 as u8;
+        lock_data_sz = locktype_info.1;
+    }
 
     //Create shared memory
-    //TODO : Handle "File exists" errors when creating MemFile with new_file.link_path.is_some()
-    //       When new_file.link_path.is_some(), we can figure out a real_path that doesnt collide with another
-    //       and stick it in the link_file
     let shmem_fd = match shm_open(
         real_path.as_str(), //Unique name that usualy pops up in /dev/shm/
         OFlag::O_CREAT|OFlag::O_EXCL|OFlag::O_RDWR, //create exclusively (error if collision) and read/write to allow resize
@@ -290,7 +315,24 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
         },
     };
 
-    let meta = MemMetadata {
+
+    //Nothing else to do if raw mapping
+    if is_raw {
+        new_file.meta = Some(MemMetadata {
+            owner: true,
+            map_name: real_path,
+            map_fd: shmem_fd,
+            map_size: actual_size,
+            shared_data: map_addr as *mut SharedData,
+            lock_data: null_mut(),
+            data: map_addr as *mut c_void,
+            lock_impl: &LockNone{},
+        });
+
+        return Ok(new_file);
+    }
+
+    let mut meta = MemMetadata {
         owner: true,
         map_name: real_path,
         map_fd: shmem_fd,
@@ -298,35 +340,57 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
         shared_data: map_addr as *mut SharedData,
         lock_data: (map_addr as usize + shared_data_sz) as *mut _,
         data: (map_addr as usize + shared_data_sz + lock_data_sz) as *mut c_void,
-        lock_impl: get_supported_lock(&lock_type),
+        lock_impl: &LockNone{},
     };
 
-    //Write the type of lock we created the mapping with
-    unsafe {
-        (*meta.shared_data).lock_ind = locktype_to_ind(&lock_type) as u8;
-    }
+    //Init our shared metadata
+    let shared_data: &mut SharedData = unsafe {
+        &mut (*meta.shared_data)
+    };
+    shared_data.lock_ind = lock_ind;
 
-    //Link the finalized metadata to the MemFile
+    //Init Lock data
+    match lock_type {
+        LockType::None => {},
+        LockType::Mutex => {
+            //meta.lock_data = INVALID_HANDLE_VALUE as *mut _;
+            //meta.lock_impl = &Mutex{};
+        },
+        LockType::RwLock => {
+            // Init our RW lock
+            let mut lock_attr: [u8; size_of::<pthread_rwlockattr_t>()] = [0; size_of::<pthread_rwlockattr_t>()];
+            unsafe {
+                //Set the PTHREAD_PROCESS_SHARED attribute on our rwlock
+                pthread_rwlockattr_init(lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t);
+                pthread_rwlockattr_setpshared(lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t, PTHREAD_PROCESS_SHARED);
+                //Init the rwlock
+                pthread_rwlock_init(meta.lock_data as *mut pthread_rwlock_t, lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t);
+            }
+            meta.lock_impl = &RwLock{};
+        },
+    };
+
     new_file.meta = Some(meta);
-
     Ok(new_file)
 }
 
-//Returns the size we need to allocate in the shared memory for our lock
-fn get_supported_lock_size(lock_type: &LockType) -> usize {
+//Returns the index and size of the lock_type
+fn supported_locktype_info(lock_type: &LockType) -> (usize, usize) {
     match lock_type {
-        &LockType::None => LockNone::size_of(),
-        &LockType::RwLock => RwLock::size_of(),
-        _ => unimplemented!("Linux does not support this lock type..."),
+        &LockType::None => (0, LockNone::size_of()),
+        //&LockType::Mutex => (1, Mutex::size_of()),
+        &LockType::RwLock => (2, RwLock::size_of()),
+        _ => unimplemented!("Windows does not support this lock type..."),
     }
 }
 
-//Returns a boxed trait that implements MemFileLockImpl for the specified type
-fn get_supported_lock(lock_type: &LockType) -> &'static MemFileLockImpl {
-    match lock_type {
-        &LockType::None => &LockNone{},
-        &LockType::RwLock => &RwLock{},
-        _ => unimplemented!("Linux does not support this lock type..."),
+//Returns the proper locktype and size of the structure
+fn supported_locktype_from_ind(index: usize) -> (LockType, usize) {
+    match index {
+        0 => (LockType::None, LockNone::size_of()),
+        //1 => (LockType::Mutex, Mutex::size_of()),
+        2 => (LockType::RwLock, RwLock::size_of()),
+        _ => unimplemented!("Windows does not support this locktype index..."),
     }
 }
 
@@ -335,19 +399,7 @@ fn get_supported_lock(lock_type: &LockType) -> &'static MemFileLockImpl {
 pub struct RwLock {}
 
 impl MemFileLockImpl for RwLock {
-    //Init the rwlock with proper attributes
-    fn init(&self, lock_ptr: *mut c_void) -> Result<()> {
 
-        let mut lock_attr: [u8; size_of::<pthread_rwlockattr_t>()] = [0; size_of::<pthread_rwlockattr_t>()];
-        unsafe {
-            //Set the PTHREAD_PROCESS_SHARED attribute on our rwlock
-            pthread_rwlockattr_init(lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t);
-            pthread_rwlockattr_setpshared(lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t, PTHREAD_PROCESS_SHARED);
-            //Init the rwlock
-            pthread_rwlock_init(lock_ptr as *mut pthread_rwlock_t, lock_attr.as_mut_ptr() as *mut pthread_rwlockattr_t);
-        }
-        Ok(())
-    }
     fn size_of() -> usize {
         size_of::<pthread_rwlock_t>()
     }
