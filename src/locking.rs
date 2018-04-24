@@ -17,7 +17,6 @@ pub enum LockType {
 #[doc(hidden)]
 pub struct LockNone {}
 impl MemFileLockImpl for LockNone {
-    fn init(&self, _lock_data: *mut c_void) -> Result<()> {Ok(())}
     fn size_of() -> usize {0}
     fn rlock(&self, _lock_data: *mut c_void) -> Result<()> {Ok(())}
     fn wlock(&self, _lock_data: *mut c_void) -> Result<()> {Ok(())}
@@ -27,9 +26,7 @@ impl MemFileLockImpl for LockNone {
 
 ///Plublic traits that custom locks need to implement
 #[doc(hidden)] pub trait MemFileLockImpl {
-    ///This method is called once to initate the lock
-    fn init(&self, lock_ptr: *mut c_void) -> Result<()>;
-    ///Returns the size of this lock structure
+    ///Returns the size of this lock structure that should be allocated in the shared mapping
     fn size_of() -> usize where Self: Sized;
     ///This method should only return once we have safe read access
     fn rlock(&self, lock_ptr: *mut c_void) -> Result<()>;
