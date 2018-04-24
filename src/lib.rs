@@ -6,7 +6,7 @@
 //! Creator based on examples/create.rs
 //! ```
 //! //Create a MemFile at `pwd`\shared_mem.link that links to a shared memory mapping of size 4096 and managed by a mutex.
-//! let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link") LockType::Mutex, 4096) {<...>};
+//! let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link") LockType::Mutex, 4096).unwrap();
 //! //Set explicit scope for the lock (no need to call drop(shared_data))
 //! {
 //!     //Acquire write lock
@@ -20,11 +20,11 @@
 //! Slave based on examples/open.rs
 //! ```
 // Open an existing MemFile from `pwd`\shared_mem.link
-//! let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")).unwrap();;
+//! let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")).unwrap();
 //! //Set explicit scope for the lock (no need to call drop(shared_data))
 //! {
 //!     //Acquire read lock
-//!     let mut shared_data = match mem_file.rlock_as_slice::<u8>() {<...>};
+//!     let mut shared_data = match mem_file.rlock_as_slice::<u8>().unwrap();
 //!     //Print the content of the shared memory as chars
 //!     for byte in &shared_data[0..256] {
 //!         if *byte == 0 { break; }
@@ -77,11 +77,12 @@ pub struct MemFile<'a> {
 impl<'a> MemFile<'a> {
     ///Opens an existing MemFile
     ///
-    /// This function takes a path too a link file created by create().
-    /// Open() will automatically deduct the size and locking mechanisms.
+    /// This function takes a path to a link file created by create().
+    /// Open() will automatically detect the size and locking mechanisms.
     ///
     /// # Examples
     /// ```
+    /// use mem_file::*;
     /// //Opens an existing shared MemFile named test.txt
     /// let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")) {
     ///     Ok(v) => v,
@@ -121,9 +122,9 @@ impl<'a> MemFile<'a> {
     ///Opens an existing shared memory mappping in raw mode.
     ///This simply opens an existing mapping with no additionnal features (no locking, no metadata, etc...).
     ///
-    ///This function is useful when using mappings not created by mem_file/
+    ///This function is useful when using mappings not created by mem_file.
     ///
-    ///You need to pass a valid OS shared memory identifier as an argument to this function.
+    ///To use this function, you need to pass a valid OS shared memory identifier as an argument.
     pub fn open_raw(shmem_path: String) -> Result<MemFile<'a>> {
 
         let mem_file: MemFile = MemFile {
@@ -146,6 +147,9 @@ impl<'a> MemFile<'a> {
     ///
     /// # Examples
     /// ```
+    /// # use mem_file::*;
+    /// # use std::path::PathBuf;
+    /// # let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")) {Ok(v) => v, Err(_) => return,};
     /// //Creates a new shared MemFile named shared_mem.link of size 4096
     /// let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link"), LockType::Mutex, 4096) {
     ///     Ok(v) => v,
@@ -189,7 +193,7 @@ impl<'a> MemFile<'a> {
 
         Ok(created_file)
     }
-    ///Creates a raw shared memory object. Only use this method if you do not wish to have all the nice features on a regular MemFile.
+    ///Creates a raw shared memory object. Only use this method if you do not wish to have all the nice features of a regular MemFile.
     ///
     ///This function is useful when creating mappings for libraries/applications that do not use MemFile.
     ///By using this function, you explicitly mean : do not create anything else than a memory mapping.
@@ -218,19 +222,22 @@ impl<'a> MemFile<'a> {
     }
     ///Returns the OS specific path of the shared memory object
     ///
-    /// Usualy on Linux, this will point to a file under /dev/shmem
+    /// Usualy on Linux, this will point to a file under /dev/shm/
     ///
     /// On Windows, this returns a namespace
     pub fn get_real_path(&self) -> Option<&String> {
         self.real_path.as_ref()
     }
 
-    ///Returns a non-exclusive read lock to the shared memory
+    ///Returns a read lock to the shared memory
     ///
     /// # Examples
     ///
     /// ```
-    /// //let some_val: MemFileRLock<u8> = mem_file.rlock().unwrap();
+    /// # use mem_file::*;
+    /// # use std::path::PathBuf;
+    /// # let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")) {Ok(v) => v, Err(_) => return,};
+    /// //let some_val: ReadLockGuard<u8> = mem_file.rlock().unwrap();
     /// let some_val = mem_file.rlock::<u8>().unwrap();
     /// println!("I can read a shared u8 ! {}", *some_val);
     /// ```
@@ -260,12 +267,15 @@ impl<'a> MemFile<'a> {
             return Err(From::from("No file mapped to get lock on"));
         }
     }
-    ///Returns a non-exclusive read lock to the shared memory as a slice
+    ///Returns a read lock to the shared memory as a slice
     ///
     /// # Examples
     ///
     /// ```
-    /// //let read_buf: MemFileRLockSlice<u8> = mem_file.rlock_as_slice().unwrap();
+    /// # use mem_file::*;
+    /// # use std::path::PathBuf;
+    /// # let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")) {Ok(v) => v, Err(_) => return,};
+    /// //let read_buf: ReadLockGuardSlice<u8> = mem_file.rlock_as_slice().unwrap();
     /// let read_buf = mem_file.rlock_as_slice::<u8>().unwrap();
     /// println!("I'm reading into a u8 from a shared &[u8] ! : {}", read_buf[0]);
     /// ```
@@ -296,11 +306,14 @@ impl<'a> MemFile<'a> {
             return Err(From::from("No file mapped to get lock on"));
         }
     }
-    ///Returns an exclusive read/write lock to the shared memory
+    ///Returns a read/write lock to the shared memory
     /// # Examples
     ///
     /// ```
-    /// //let mut some_val: MemFileWLock<u32> = mem_file.wlock().unwrap();
+    /// # use mem_file::*;
+    /// # use std::path::PathBuf;
+    /// # let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")) {Ok(v) => v, Err(_) => return,};
+    /// //let mut some_val: WriteLockGuard<u32> = mem_file.wlock().unwrap();
     /// let mut some_val = mem_file.wlock::<u32>().unwrap();
     /// *(*some_val) = 1;
     /// ```
@@ -330,12 +343,15 @@ impl<'a> MemFile<'a> {
             return Err(From::from("No file mapped to get lock on"));
         }
     }
-    ///Returns exclusive read/write access to a &mut [T] on the shared memory
+    ///Returns a read/write access to a &mut [T] on the shared memory
     ///
     /// # Examples
     ///
     /// ```
-    /// //let write_buf: MemFileWLockSlice<u8> = mem_file.wlock_as_slice().unwrap();
+    /// # use mem_file::*;
+    /// # use std::path::PathBuf;
+    /// # let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")) {Ok(v) => v, Err(_) => return,};
+    /// //let write_buf: WriteLockGuardSlice<u8> = mem_file.wlock_as_slice().unwrap();
     /// let write_buf = mem_file.wlock_as_slice::<u8>().unwrap();
     /// write_buf[0] = 0x1;
     /// ```
@@ -414,17 +430,15 @@ impl<'a> Drop for MemFile<'a> {
 ///     message: [u8; 256],
 /// }
 /// //WARNING : Only do this if you know what you're doing.
-/// impl MemFileCast for SharedState {}
+/// unsafe impl MemFileCast for SharedState {}
 ///
 /// <...>
 ///
 /// {
-///     let mut shared_state: MemFileWLock<SharedState> = match mem_file.wlock() {
-///         Ok(v) => v,
-///         Err(_) => panic!("Failed to acquire write lock !"),
-///     };
-///
+///     let mut shared_state: WriteLockGuard<SharedState> = match mem_file.wlock().unwrap();
 ///     shared_state.num_listenners = 0;
+///     let src = b"Welcome, we currently have 0 listenners !\x00";
+///     shared_state.message[0..src.len()].copy_from_slice(src);
 /// }
 ///```
 pub unsafe trait MemFileCast {}

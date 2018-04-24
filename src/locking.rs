@@ -10,6 +10,7 @@ pub enum LockType {
     Mutex,
     ///Multiple readers can access the data. Writer access is exclusive.
     RwLock,
+    //BusyWait,
     ///No locking restrictions on the shared memory
     None,
 }
