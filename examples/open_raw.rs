@@ -1,17 +1,6 @@
 extern crate mem_file;
 use mem_file::*;
 use std::path::PathBuf;
-use std::str::from_utf8_unchecked;
-
-//Is there a rust function that does this ?
-fn from_ut8f_to_null(bytes: &[u8], max_len: usize) -> &str {
-    for i in 0..max_len {
-        if bytes[i] == 0 {
-            return unsafe {from_utf8_unchecked(&bytes[0..i])};
-        }
-    }
-    panic!("Couldnt find null terminator.");
-}
 
 fn main() {
 
