@@ -25,6 +25,7 @@ fn main() {
 
     //Update the shared memory
     {
+        //This uses a LockType::None which makes "locking" a no-op
         let mut num_listenners: WriteLockGuard<u8> = match mem_file.wlock() {
             Ok(v) => v,
             Err(e) => panic!("ERROR : {}\nFailed to acquire write lock !", e),
