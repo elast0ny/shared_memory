@@ -46,7 +46,7 @@ let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")
 |--------|-------------|:-----:|:------:|:----:|
 |MemFile.create/open|Create/open a MemFile|✔|✔|X|
 |MemFile.*_raw|Create/open a raw shared memory map|✔|✔|X|
-|LockType::Mutex|Mutually exclusive lock|X|X<sup>[3]</sup>|X|
+|LockType::Mutex|Mutually exclusive lock|✔|X<sup>[3]</sup>|X|
 |LockType::RwLock|Exlusive write/shared read|✔|X<sup>[2]</sup>|X|
 
 <sup>[1] I do not own a Mac so cannot implement that side of things myself. Contributions are welcome !</sup>

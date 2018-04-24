@@ -2,18 +2,27 @@ extern crate libc;
 extern crate nix;
 
 use self::libc::{
+    //Mutex defs
+    pthread_mutex_t,
+    pthread_mutex_init,
+    pthread_mutex_lock,
+    pthread_mutex_unlock,
+    //Mutex attribute
+    pthread_mutexattr_t,
+    pthread_mutexattr_init,
+    pthread_mutexattr_setpshared,
+
+    //Rwlock defs
     pthread_rwlock_t,
     pthread_rwlock_init,
     pthread_rwlock_unlock,
     pthread_rwlock_rdlock,
     pthread_rwlock_wrlock,
-
-    //pthread_rwlock_tryrdlock,
-    //pthread_rwlock_trywrlock,
-    /* Lock Attribute stuff */
+    //RW Atribute
     pthread_rwlockattr_t,
     pthread_rwlockattr_init,
     pthread_rwlockattr_setpshared,
+
     PTHREAD_PROCESS_SHARED,
 };
 
@@ -196,7 +205,7 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
     let shared_data_sz = (size_of::<SharedData>() + 3) & !(0x03 as usize);
     let lock_data_sz = lock_info.1;
 
-    let mut meta: MemMetadata = MemMetadata {
+    let meta: MemMetadata = MemMetadata {
         owner: false,
         map_name: shmem_path,
         map_fd: map_fd,
@@ -204,21 +213,14 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
         shared_data: map_addr as *mut SharedData,
         lock_data: (map_addr as usize + shared_data_sz) as *mut _,
         data: (map_addr as usize + shared_data_sz + lock_data_sz) as *mut c_void,
-        lock_impl: &LockNone{},
+        lock_impl: match lock_type {
+            LockType::None => &LockNone{},
+            LockType::Mutex =>  &Mutex{},
+            LockType::RwLock => &RwLock{},
+        },
     };
     //Set the proper user data size considering our metadata
     new_file.size = meta.map_size - shared_data_sz - lock_data_sz;
-
-
-    //Set the proper lock handlers
-    match lock_type {
-        LockType::None => {},
-        LockType::Mutex => {},
-        LockType::RwLock => {
-            //Lock should be initialized by AsMut
-            meta.lock_impl = &RwLock{};
-        },
-    };
 
     //This meta struct is now link to the MemFile
     new_file.meta = Some(meta);
@@ -353,8 +355,15 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
     match lock_type {
         LockType::None => {},
         LockType::Mutex => {
-            //meta.lock_data = INVALID_HANDLE_VALUE as *mut _;
-            //meta.lock_impl = &Mutex{};
+            let mut lock_attr: [u8; size_of::<pthread_mutexattr_t>()] = [0; size_of::<pthread_mutexattr_t>()];
+            unsafe {
+                //Set the PTHREAD_PROCESS_SHARED attribute on our rwlock
+                pthread_mutexattr_init(lock_attr.as_mut_ptr() as *mut pthread_mutexattr_t);
+                pthread_mutexattr_setpshared(lock_attr.as_mut_ptr() as *mut pthread_mutexattr_t, PTHREAD_PROCESS_SHARED);
+                //Init the rwlock
+                pthread_mutex_init(meta.lock_data as *mut pthread_mutex_t, lock_attr.as_mut_ptr() as *mut pthread_mutexattr_t);
+            }
+            meta.lock_impl = &Mutex{};
         },
         LockType::RwLock => {
             // Init our RW lock
@@ -378,9 +387,8 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
 fn supported_locktype_info(lock_type: &LockType) -> (usize, usize) {
     match lock_type {
         &LockType::None => (0, LockNone::size_of()),
-        //&LockType::Mutex => (1, Mutex::size_of()),
+        &LockType::Mutex => (1, Mutex::size_of()),
         &LockType::RwLock => (2, RwLock::size_of()),
-        _ => unimplemented!("Windows does not support this lock type..."),
     }
 }
 
@@ -388,16 +396,46 @@ fn supported_locktype_info(lock_type: &LockType) -> (usize, usize) {
 fn supported_locktype_from_ind(index: usize) -> (LockType, usize) {
     match index {
         0 => (LockType::None, LockNone::size_of()),
-        //1 => (LockType::Mutex, Mutex::size_of()),
+        1 => (LockType::Mutex, Mutex::size_of()),
         2 => (LockType::RwLock, RwLock::size_of()),
-        _ => unimplemented!("Windows does not support this locktype index..."),
+        _ => unimplemented!("Linux does not support this locktype index..."),
     }
 }
 
 /* Lock Implementations */
+//Mutex
+pub struct Mutex {}
+impl MemFileLockImpl for Mutex {
 
+    fn size_of() -> usize {
+        size_of::<pthread_mutex_t>()
+    }
+    fn rlock(&self, lock_ptr: *mut c_void) -> Result<()> {
+        unsafe {
+            pthread_mutex_lock(lock_ptr as *mut pthread_mutex_t);
+        }
+        Ok(())
+    }
+    fn wlock(&self, lock_ptr: *mut c_void) -> Result<()> {
+        unsafe {
+            pthread_mutex_lock(lock_ptr as *mut pthread_mutex_t);
+        }
+        Ok(())
+    }
+    fn runlock(&self, lock_ptr: *mut c_void) -> () {
+        unsafe {
+            pthread_mutex_unlock(lock_ptr as *mut pthread_mutex_t);
+        }
+    }
+    fn wunlock(&self, lock_ptr: *mut c_void) -> () {
+        unsafe {
+            pthread_mutex_unlock(lock_ptr as *mut pthread_mutex_t);
+        }
+    }
+}
+
+//RwLock
 pub struct RwLock {}
-
 impl MemFileLockImpl for RwLock {
 
     fn size_of() -> usize {
