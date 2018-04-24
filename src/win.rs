@@ -234,7 +234,7 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
                         v => unique_name.push(v),
                     };
                 }
-                unique_name
+                String::from(unique_name.trim_matches('_'))
             } else {
                 //lib.rs shouldnt call us without either real_path or link_path set
                 panic!("Trying to create MemFile without any name");
