@@ -339,3 +339,26 @@ fn get_supported_lock(lock_type: &LockType) -> &'static MemFileLockImpl {
         _ => unimplemented!("Windows does not support this lock type..."),
     }
 }
+
+
+/* Lock Implementations */
+
+pub struct Mutex {}
+
+impl MemFileLockImpl for Mutex {
+    //Init the rwlock with proper attributes
+    fn init(&self, lock_ptr: *mut c_void) -> Result<()> {
+        Ok(())
+    }
+    fn size_of() -> usize {0}
+    fn rlock(&self, lock_ptr: *mut c_void) -> Result<()> {
+        Ok(())
+    }
+    fn wlock(&self, lock_ptr: *mut c_void) -> Result<()> {
+        Ok(())
+    }
+    fn runlock(&self, lock_ptr: *mut c_void) -> () {
+    }
+    fn wunlock(&self, lock_ptr: *mut c_void) -> () {
+    }
+}
