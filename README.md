@@ -45,7 +45,7 @@ let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")
 | Feature| Description | Linux | Windows|  Mac |
 |--------|-------------|:-----:|:------:|:----:|
 |MemFile.create/open|Create/open a MemFile|✔|✔|X|
-|MemFile.*_raw|Create/open a raw shared memory map|X|✔|X|
+|MemFile.*_raw|Create/open a raw shared memory map|X|X|X|
 |LockType::Mutex|Mutually exclusive lock|X|X|X|
 |LockType::RwLock|Exlusive write/shared read|✔|X|X|
 
