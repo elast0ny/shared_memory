@@ -44,11 +44,14 @@ let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")
 
 | Feature| Description | Linux | Windows|  Mac |
 |--------|-------------|:-----:|:------:|:----:|
-|MemFile.create/open|Create/open a MemFile|✔|✔|X|
-|MemFile.*_raw|Create/open a raw shared memory map|X|✔|X|
-|LockType::Mutex|Mutually exclusive lock|X|X|X|
-|LockType::RwLock|Exlusive write/shared read|✔|X|X|
+|MemFile.create/open|Create/open a MemFile|✔|✔|X^1^|
+|MemFile.*_raw|Create/open a raw shared memory map|X|✔|X^1^|
+|LockType::Mutex|Mutually exclusive lock|X|X|X^1^|
+|LockType::RwLock|Exlusive write/shared read|✔|X^2^|X^1^|
 
+^1 : I do not own a Mac so cannot implement that side of things myself. Contributions are welcome !^
+
+^2: Windows provides no default implementation of Rwlock that is safe to shared between processes^
 
 ## License
 
