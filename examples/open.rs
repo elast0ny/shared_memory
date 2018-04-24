@@ -44,6 +44,11 @@ fn main() {
         print!("Shared buffer = \"");
         print!("{}", from_ut8f_to_null(&read_buf[4..], 256));
         println!("\"");
+
+        //This should block any other reader when LockType::Mutex is used,
+        //When LockType::RwLock is used, multiple readers should be able to hold this for 5 seconds.
+        println!("Holding read lock for 5 seconds !");
+        std::thread::sleep(std::time::Duration::from_secs(5));
     }
 
     println!("Incrementing shared listenner count !");
