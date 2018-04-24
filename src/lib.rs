@@ -187,12 +187,6 @@ impl<'a> MemFile<'a> {
             panic!("os_impl::create() returned succesfully but didnt update MemFile::real_path() !");
         }
 
-        //Initialize the locking mechanism on the shared memory
-        {
-            let meta_data = created_file.meta.as_ref().unwrap();
-            meta_data.lock_impl.init(meta_data.lock_data)?;
-        }
-
         Ok(created_file)
     }
     ///Creates a raw shared memory object. Only use this method if you do not wish to have all the nice features on a regular MemFile.
