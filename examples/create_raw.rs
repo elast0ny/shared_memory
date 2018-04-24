@@ -1,0 +1,48 @@
+extern crate mem_file;
+use mem_file::*;
+use std::path::PathBuf;
+
+struct SharedState {
+    num_listenners: u32,
+    message: [u8; 256],
+}
+//WARNING : Only do this if you know what you're doing.
+unsafe impl MemFileCast for SharedState {}
+
+
+//This example demonstrates how to use the *_raw() APIs.
+//
+//These APIs are only useful if you wish to use shared memory that isnt managed by mem_file.
+
+fn main() {
+
+    //Create a new raw shared mapping
+    let mut mem_file: MemFile = match MemFile::create_raw(String::from("some_raw_map"), 4096) {
+        Ok(v) => v,
+        Err(e) => {
+            println!("Error : {}", e);
+            println!("Failed to create raw MemFile...");
+            return;
+        }
+    };
+
+    println!("Created link file \"{}\"
+    Backed by OS identifier : \"{}\"
+    Size : 0x{:x}",
+    mem_file.get_link_path().unwrap_or(&PathBuf::from("[NONE]")).to_string_lossy(),
+    mem_file.get_real_path().unwrap(),
+    mem_file.get_size());
+
+    println!("Busy looping until first byte changes...");
+    {
+        //This uses a LockType::None which makes "locking" a no-op
+        let first_byte: ReadLockGuard<u8> = mem_file.rlock().unwrap();
+
+        //We never need to release the "lock" since there is no lock
+        while *first_byte == &0 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    }
+
+    println!("Done !");
+}
