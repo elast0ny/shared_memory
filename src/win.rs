@@ -28,7 +28,7 @@ fn ind_to_locktype(ind: &usize) -> LockType {
     match *ind {
         0 => LockType::None,
         1 => LockType::Mutex,
-        2 => LockType::Rwlock,
+        2 => LockType::RwLock,
         _ => LockType::None,
     }
 }
@@ -36,7 +36,7 @@ fn locktype_to_ind(lock_type: &LockType) -> usize {
     match *lock_type {
         LockType::None => 0,
         LockType::Mutex => 1,
-        LockType::Rwlock => 2,
+        LockType::RwLock => 2,
     }
 }
 
@@ -86,6 +86,9 @@ impl<'a> Drop for MemMetadata<'a> {
 
 //Opens an existing MemFile, OpenFileMappingA()/MapViewOfFile()/VirtualQuery()
 pub fn open(mut new_file: MemFile) -> Result<MemFile> {
+
+    //If there is a link file, this isnt a raw mapping
+    let is_raw: bool = !new_file.link_path.is_some();
 
     // Get the shmem path
     let mapping_path = match new_file.real_path {
@@ -151,30 +154,45 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
 
         mem_ba.RegionSize
     };
+    println!("Openned mapping of size {} {}", full_size, is_raw);
+    let meta: MemMetadata;
 
-    //Figure out what the lock type is based on the shared_data set by create()
-    let shared_data: &SharedData = unsafe {&(*(map_addr as *mut SharedData))};
-    let lock_ind = shared_data.lock_ind;
-    let lock_type: LockType = ind_to_locktype(&(lock_ind as usize));
-
-    //Ensure our shared data is 4 byte aligned
-    let shared_data_sz = (size_of::<SharedData>() + 3) & !(0x03 as usize);
-    let lock_data_sz = get_supported_lock_size(&lock_type);
-
-    //Use the proper lock type implementation
-    let meta: MemMetadata = MemMetadata {
-        map_handle: map_handle,
-        shared_data: map_addr as *mut SharedData,
-        lock_data: (map_addr as usize + shared_data_sz) as *mut _,
-        data: (map_addr as usize + shared_data_sz + lock_data_sz) as *mut c_void,
-        lock_impl: get_supported_lock(&lock_type),//get_supported_lock(&lock_type),
-    };
-
-    //Pick the smallest size
-    if full_size > shared_data.mapping_size {
-        new_file.size = shared_data.mapping_size;
+    //Do not not add any meta_data locking if raw mapping
+    if is_raw {
+        //We cannot get a more precise size than what VirtualQuery is telling us
+        new_file.size = full_size;
+        meta = MemMetadata {
+            map_handle: map_handle,
+            shared_data: map_addr as *mut SharedData,
+            lock_data: null_mut(),
+            data: map_addr as *mut c_void,
+            lock_impl: &LockNone{},
+        };
     } else {
-        new_file.size = full_size - shared_data_sz - lock_data_sz;
+        //Figure out what the lock type is based on the shared_data set by create()
+        let shared_data: &SharedData = unsafe {&(*(map_addr as *mut SharedData))};
+        let lock_ind = shared_data.lock_ind;
+        let lock_type: LockType = ind_to_locktype(&(lock_ind as usize));
+
+        //Ensure our shared data is 4 byte aligned
+        let shared_data_sz = (size_of::<SharedData>() + 3) & !(0x03 as usize);
+        let lock_data_sz = get_supported_lock_size(&lock_type);
+
+        //Use the proper lock type implementation
+        meta = MemMetadata {
+            map_handle: map_handle,
+            shared_data: map_addr as *mut SharedData,
+            lock_data: (map_addr as usize + shared_data_sz) as *mut _,
+            data: (map_addr as usize + shared_data_sz + lock_data_sz) as *mut c_void,
+            lock_impl: get_supported_lock(&lock_type),//get_supported_lock(&lock_type),
+        };
+
+        //Pick the smallest size
+        if full_size > shared_data.mapping_size {
+            new_file.size = shared_data.mapping_size;
+        } else {
+            new_file.size = full_size - shared_data_sz - lock_data_sz;
+        }
     }
 
     new_file.meta = Some(meta);
@@ -227,16 +245,17 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
     let shared_data_sz: usize;
     let lock_data_sz: usize;
 
+    //If not raw, add MemFile metadata
     if !is_raw {
         //Get the total size with all the added metadata
         shared_data_sz = (size_of::<SharedData>() + 3) & !(0x03 as usize);
         lock_data_sz = get_supported_lock_size(&lock_type);
     } else {
+        //We are creating a raw mapping with no metadata
         shared_data_sz = 0;
         lock_data_sz = 0;
     }
     let actual_size: usize = new_file.size + lock_data_sz + shared_data_sz;
-
 
     //Create mapping and map to our address space
     let map_handle = unsafe {

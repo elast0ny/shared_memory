@@ -121,9 +121,21 @@ impl<'a> MemFile<'a> {
     ///Opens an existing shared memory mappping in raw mode.
     ///This simply opens an existing mapping with no additionnal features (no locking, no metadata, etc...).
     ///
-    ///This function is useful when using mappings not created by mem_file
-    pub fn open_raw(_shmem_path: String) -> Result<MemFile<'a>> {
-        unimplemented!("This is not implemented yet");
+    ///This function is useful when using mappings not created by mem_file/
+    ///
+    ///You need to pass a valid OS shared memory identifier as an argument to this function.
+    pub fn open_raw(shmem_path: String) -> Result<MemFile<'a>> {
+
+        let mem_file: MemFile = MemFile {
+            meta: None,
+            owner: false,
+            link_path: None, //Leave this explicity to None to specify raw mode
+            real_path: Some(shmem_path),
+            size: 0, //os_open needs to fill this field up
+        };
+
+        //Open the shared memory using the real_path
+        os_impl::open(mem_file)
     }
     /// Creates a new MemFile
     ///
@@ -183,9 +195,23 @@ impl<'a> MemFile<'a> {
 
         Ok(created_file)
     }
-    ///Creates a shared memory object
-    pub fn create_raw(_shmem_path: String) -> Result<MemFile<'a>> {
-        unimplemented!("This is not implemented yet");
+    ///Creates a raw shared memory object. Only use this method if you do not wish to have all the nice features on a regular MemFile.
+    ///
+    ///This function is useful when creating mappings for libraries/applications that do not use MemFile.
+    ///By using this function, you explicitly mean : do not create anything else than a memory mapping.
+    ///
+    ///The first argument needs to be a valid identifier for the OS in use.
+    ///colisions wont be avoided through link files and no meta data (locks) is added to the shared mapping.
+    pub fn create_raw(shmem_path: String, size: usize) -> Result<MemFile<'a>> {
+        let mem_file: MemFile = MemFile {
+            meta: None,
+            owner: true,
+            link_path: None, //Leave this explicitly empty
+            real_path: Some(shmem_path),
+            size: size,
+        };
+
+        Ok(os_impl::create(mem_file, LockType::None)?)
     }
 
     ///Returns the size of the MemFile
