@@ -2,14 +2,6 @@ extern crate mem_file;
 use mem_file::*;
 use std::path::PathBuf;
 
-struct SharedState {
-    num_listenners: u32,
-    message: [u8; 256],
-}
-//WARNING : Only do this if you know what you're doing.
-unsafe impl MemFileCast for SharedState {}
-
-
 //This example demonstrates how to use the *_raw() APIs.
 //
 //These APIs are only useful if you wish to use shared memory that isnt managed by mem_file.
@@ -17,7 +9,7 @@ unsafe impl MemFileCast for SharedState {}
 fn main() {
 
     //Create a new raw shared mapping
-    let mut mem_file: MemFile = match MemFile::create_raw(String::from("some_raw_map"), 4096) {
+    let mem_file: MemFile = match MemFile::create_raw(String::from("some_raw_map"), 4096) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);
@@ -26,6 +18,7 @@ fn main() {
         }
     };
 
+    //Display some info
     println!("Created link file \"{}\"
     Backed by OS identifier : \"{}\"
     Size : 0x{:x}",
