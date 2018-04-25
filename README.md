@@ -1,12 +1,13 @@
 # mem_file
 
-[![Build Status](https://travis-ci.org/elast0ny/mem_file.svg?branch=master)](https://travis-ci.org/elast0ny/mem_file)  ![crates.oi](https://img.shields.io/crates/v/mem_file.svg) ![mio](https://docs.rs/mem_file/badge.svg) ![Lines of Code](https://tokei.rs/b1/github/elast0ny/mem_file)
+[![Build Status](https://travis-ci.org/elast0ny/mem_file.svg?branch=master)](https://travis-ci.org/elast0ny/mem_file)
+[![crates.io](https://img.shields.io/crates/v/mem_file.svg)](https://docs.rs/mem_file/)
+[![mio](https://docs.rs/mem_file/badge.svg)](https://docs.rs/mem_file/)
+![Lines of Code](https://tokei.rs/b1/github/elast0ny/mem_file)
 
 This crate provides a simple interface to shared memory OS APIs.
 
 Shared memory is well suited for sharing large amounts of data between processes as it relies purely on memory accesses. Other than when managing concurent access through locks/events, reading and writing memory from a MemFile relies only on CPU features (the operating system is not involved, no context switches like system calls, etc...).
-
-[Documentation](https://docs.rs/mem_file/) | [crates.io](https://crates.io/crates/mem_file)
 
 ## Usage
 
