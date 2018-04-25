@@ -1,7 +1,7 @@
 # mem_file
 
 [![Build Status](https://travis-ci.org/elast0ny/mem_file.svg?branch=master)](https://travis-ci.org/elast0ny/mem_file)
-[![crates.io](https://img.shields.io/crates/v/mem_file.svg)](https://docs.rs/mem_file/)
+[![crates.io](https://img.shields.io/crates/v/mem_file.svg)](https://crates.io/crates/mem_file)
 [![mio](https://docs.rs/mem_file/badge.svg)](https://docs.rs/mem_file/)
 ![Lines of Code](https://tokei.rs/b1/github/elast0ny/mem_file)
 
