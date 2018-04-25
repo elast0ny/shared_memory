@@ -402,46 +402,43 @@ fn supported_locktype_from_ind(index: usize) -> (LockType, usize) {
 
 /* Lock Implementations */
 
-pub struct Mutex {}
 
+//Mutex
+pub struct Mutex {}
+impl Mutex {
+    pub fn acquire_lock(&self, handle: *mut winapi::ctypes::c_void) -> Result<()> {
+        //Wait for mutex to be availabe
+        let wait_res = unsafe {WaitForSingleObject(
+            handle,
+            INFINITE)};
+
+        if wait_res == WAIT_OBJECT_0 {
+            Ok(())
+        } else {
+            Err(From::from("Failed to acquire Mutex !"))
+        }
+    }
+    pub fn release_lock(&self, handle: *mut winapi::ctypes::c_void) {
+        unsafe {ReleaseMutex(handle)};
+    }
+}
 impl MemFileLockImpl for Mutex {
 
     fn size_of() -> usize {
         //A mutex is identified by a Windows namespace with a max of 255 characters
         255
     }
+    //Both rlock and wlock are the same for Mutexes
     fn rlock(&self, lock_data: *mut c_void) -> Result<()> {
-        let mutex_handle: *mut winapi::ctypes::c_void = lock_data as *mut winapi::ctypes::c_void;
-        //Wait for mutex to be availabe
-        let wait_res = unsafe {WaitForSingleObject(
-            mutex_handle,
-            INFINITE)};
-
-        if wait_res == WAIT_OBJECT_0 {
-            Ok(())
-        } else {
-            Err(From::from("Failed to acquire Mutex !"))
-        }
+        self.acquire_lock(lock_data as *mut winapi::ctypes::c_void)
     }
     fn wlock(&self, lock_data: *mut c_void) -> Result<()> {
-        let mutex_handle: *mut winapi::ctypes::c_void = lock_data as *mut winapi::ctypes::c_void;
-        //Wait for mutex to be availabe
-        let wait_res = unsafe {WaitForSingleObject(
-            mutex_handle,
-            INFINITE)};
-
-        if wait_res == WAIT_OBJECT_0 {
-            Ok(())
-        } else {
-            Err(From::from("Failed to acquire Mutex !"))
-        }
+        self.acquire_lock(lock_data as *mut winapi::ctypes::c_void)
     }
     fn runlock(&self, lock_data: *mut c_void) -> () {
-        let mutex_handle: *mut winapi::ctypes::c_void = lock_data as *mut winapi::ctypes::c_void;
-        unsafe {ReleaseMutex(mutex_handle)};
+        self.release_lock(lock_data as *mut winapi::ctypes::c_void);
     }
     fn wunlock(&self, lock_data: *mut c_void) -> () {
-        let mutex_handle: *mut winapi::ctypes::c_void = lock_data as *mut winapi::ctypes::c_void;
-        unsafe {ReleaseMutex(mutex_handle)};
+        self.release_lock(lock_data as *mut winapi::ctypes::c_void);
     }
 }
