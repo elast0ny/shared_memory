@@ -1,5 +1,7 @@
 # mem_file
 
+[![Build Status](https://travis-ci.org/elast0ny/mem_file.svg?branch=master)](https://travis-ci.org/elast0ny/mem_file)
+
 This crate provides a simple interface to shared memory OS APIs.
 
 Shared memory is well suited for sharing large amounts of data between processes as it relies purely on memory accesses. Other than when managing concurent access through locks/events, reading and writing memory from a MemFile relies only on CPU features (the operating system is not involved, no context switches like system calls, etc...).
