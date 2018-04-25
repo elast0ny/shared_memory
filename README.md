@@ -1,6 +1,6 @@
 # mem_file
 
-[![Build Status](https://travis-ci.org/elast0ny/mem_file.svg?branch=master)](https://travis-ci.org/elast0ny/mem_file)
+[![Build Status](https://travis-ci.org/elast0ny/mem_file.svg?branch=master)](https://travis-ci.org/elast0ny/mem_file)  ![crates.oi](https://img.shields.io/crates/v/mem_file.svg) ![mio](https://docs.rs/mem_file/badge.svg) ![Lines of Code](https://tokei.rs/b1/github/elast0ny/mem_file)
 
 This crate provides a simple interface to shared memory OS APIs.
 
