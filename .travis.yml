@@ -7,3 +7,5 @@ rust:
 cache: cargo
 script:
   - cargo build --verbose
+notifications:
+  email: false
