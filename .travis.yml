@@ -2,7 +2,6 @@ language: rust
 sudo: false
 os:
   - linux
-  - windows
 rust:
   - stable
 cache: cargo
