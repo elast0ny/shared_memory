@@ -25,7 +25,7 @@ fn main() {
         }
     };
 
-    println!("Openned link file \"{}
+    println!("Openned link file \"{}\"
     Backed by OS identifier : \"{}\"
     Size : 0x{:x}",
     mem_file.get_link_path().unwrap().to_string_lossy(),

@@ -8,6 +8,14 @@ use self::winapi::um::handleapi::*;
 use self::winapi::um::memoryapi::*;
 use self::winapi::um::errhandlingapi::*;
 
+use self::winapi::um::synchapi::{
+    CreateMutexA,
+    //OpenMutexA, //This is in winbase ??
+    WaitForSingleObject,
+    ReleaseMutex,
+    //WaitForMultipleObjects,
+};
+
 use super::{std,
     MemFile,
     LockType,
@@ -21,7 +29,6 @@ use std::ffi::CString;
 use std::ptr::{null_mut};
 use std::os::raw::c_void;
 
-use std::str::from_utf8;
 use std::slice;
 
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
@@ -48,6 +55,8 @@ pub struct MemMetadata<'a> {
     /* Mandatory fields */
     ///the shared memory for our lock
     pub lock_data: *mut c_void,
+    //Set this to true when our lock_data contains a handle
+    pub lock_data_is_handle: bool,
     ///Pointer to user data
     pub data: *mut c_void,
     //Our custom lock implementation
@@ -58,6 +67,10 @@ pub struct MemMetadata<'a> {
 impl<'a> Drop for MemMetadata<'a> {
     ///Takes care of properly closing the MemFile (munmap(), shmem_unlink(), close())
     fn drop(&mut self) {
+        //If we have an open lock handle
+        if self.lock_data_is_handle {
+            unsafe { CloseHandle(self.lock_data as *mut _); }
+        }
         //Unmap memory from our process
         if self.shared_data as *mut _ == NULL {
             unsafe { UnmapViewOfFile(self.shared_data as *mut _); }
@@ -140,7 +153,6 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
 
         mem_ba.RegionSize
     };
-    println!("Openned mapping of size {} {}", full_size, is_raw);
 
     //Do not not add any meta_data locking if raw mapping
     if is_raw {
@@ -150,6 +162,7 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
             map_handle: map_handle,
             shared_data: map_addr as *mut SharedData,
             lock_data: null_mut(),
+            lock_data_is_handle: false,
             data: map_addr as *mut c_void,
             lock_impl: &LockNone{},
         });
@@ -171,6 +184,7 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
         map_handle: map_handle,
         shared_data: map_addr as *mut SharedData,
         lock_data: (map_addr as usize + shared_data_sz) as *mut _,
+        lock_data_is_handle: false,
         data: (map_addr as usize + shared_data_sz + lock_data_sz) as *mut c_void,
         lock_impl: &LockNone{},
     };
@@ -179,15 +193,21 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
         LockType::None => {},
         LockType::Mutex => {
             //Grab mutex namespace from shared memory
-            let _mutex_namespace: String = String::from(
-                from_utf8(
-                    unsafe {
-                        slice::from_raw_parts((meta.lock_data) as *const u8, Mutex::size_of())
-                    }
-                ).unwrap()
-            );
-            //Open handle to mutex
-            meta.lock_data = INVALID_HANDLE_VALUE as *mut _;
+            let mut mutex_name: String = String::with_capacity(Mutex::size_of());
+            for char_byte in unsafe {slice::from_raw_parts((meta.lock_data) as *const u8, Mutex::size_of())} {
+                if *char_byte == 0x00 { break }
+                mutex_name.push(*char_byte as char);
+            }
+
+            meta.lock_data = unsafe {OpenMutexA(
+                SYNCHRONIZE,            // request full access
+                FALSE,                       // handle not inheritable
+                CString::new(mutex_name)?.as_ptr()) as *mut _};
+
+            if meta.lock_data as *mut winapi::ctypes::c_void == NULL {
+                return Err(From::from(format!("OpenMutexA failed with {}", unsafe{GetLastError()})));
+            }
+            meta.lock_data_is_handle = true;
             meta.lock_impl = &Mutex{};
         },
         LockType::RwLock => {
@@ -200,7 +220,6 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
     } else {
         new_file.size = full_size - shared_data_sz - lock_data_sz;
     }
-
 
     new_file.meta = Some(meta);
 
@@ -304,6 +323,7 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
             map_handle: map_handle,
             shared_data: map_addr as *mut SharedData,
             lock_data: null_mut(),
+            lock_data_is_handle: false,
             data: map_addr as *mut c_void,
             lock_impl: &LockNone{},
         });
@@ -319,6 +339,7 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
         data: (map_addr as usize + shared_data_sz + lock_data_sz) as *mut c_void,
 
         lock_data: (map_addr as usize + shared_data_sz) as *mut _,
+        lock_data_is_handle: false,
         lock_impl: &LockNone{},
     };
 
@@ -334,8 +355,21 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
         LockType::None => {},
         LockType::Mutex => {
             //Write mutex name to shared memory
-            //Open handle to mutex
-            meta.lock_data = INVALID_HANDLE_VALUE as *mut _;
+            let mutex_path: String = String::from("test_mutex");
+            let lock_data_as_slice: &mut [u8] = unsafe {
+                slice::from_raw_parts_mut((meta.lock_data) as *mut u8, Mutex::size_of())
+            };
+            lock_data_as_slice[0..mutex_path.as_bytes().len()].copy_from_slice(mutex_path.as_bytes());
+
+            //Our lock_data ptr now holds a handle
+            meta.lock_data = unsafe {CreateMutexA(
+                null_mut(),              // default security attributes
+                FALSE,             // initially not owned
+                CString::new(mutex_path)?.as_ptr()) as *mut _};
+            if meta.lock_data as *mut winapi::ctypes::c_void == NULL {
+                return Err(From::from(format!("CreateMutexA failed with {}", unsafe{GetLastError()})));
+            }
+            meta.lock_data_is_handle = true;
             meta.lock_impl = &Mutex{};
         },
         LockType::RwLock => {
@@ -350,8 +384,8 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
 fn supported_locktype_info(lock_type: &LockType) -> (usize, usize) {
     match lock_type {
         &LockType::None => (0, LockNone::size_of()),
-        //&LockType::Mutex => (1, Mutex::size_of()),
-        //&LockType::Rwlock => (2, RwLock::size_of()),
+        &LockType::Mutex => (1, Mutex::size_of()),
+        //&LockType::RwLock => (2, RwLock::size_of()),
         _ => unimplemented!("Windows does not support this lock type..."),
     }
 }
@@ -360,29 +394,51 @@ fn supported_locktype_info(lock_type: &LockType) -> (usize, usize) {
 fn supported_locktype_from_ind(index: usize) -> (LockType, usize) {
     match index {
         0 => (LockType::None, LockNone::size_of()),
-        //1 => (LockType::Mutex, Mutex::size_of()),
+        1 => (LockType::Mutex, Mutex::size_of()),
+        //2 => (LockType::RwLock, RwLock::size_of()),
         _ => unimplemented!("Windows does not support this locktype index..."),
     }
 }
 
 /* Lock Implementations */
 
-pub struct Mutex {}
 
+//Mutex
+pub struct Mutex {}
+impl Mutex {
+    pub fn acquire_lock(&self, handle: *mut winapi::ctypes::c_void) -> Result<()> {
+        //Wait for mutex to be availabe
+        let wait_res = unsafe {WaitForSingleObject(
+            handle,
+            INFINITE)};
+
+        if wait_res == WAIT_OBJECT_0 {
+            Ok(())
+        } else {
+            Err(From::from("Failed to acquire Mutex !"))
+        }
+    }
+    pub fn release_lock(&self, handle: *mut winapi::ctypes::c_void) {
+        unsafe {ReleaseMutex(handle)};
+    }
+}
 impl MemFileLockImpl for Mutex {
 
     fn size_of() -> usize {
         //A mutex is identified by a Windows namespace with a max of 255 characters
         255
     }
-    fn rlock(&self, _mutex_handle: *mut c_void) -> Result<()> {
-        Ok(())
+    //Both rlock and wlock are the same for Mutexes
+    fn rlock(&self, lock_data: *mut c_void) -> Result<()> {
+        self.acquire_lock(lock_data as *mut winapi::ctypes::c_void)
     }
-    fn wlock(&self, _mutex_handle: *mut c_void) -> Result<()> {
-        Ok(())
+    fn wlock(&self, lock_data: *mut c_void) -> Result<()> {
+        self.acquire_lock(lock_data as *mut winapi::ctypes::c_void)
     }
-    fn runlock(&self, _mutex_handle: *mut c_void) -> () {
+    fn runlock(&self, lock_data: *mut c_void) -> () {
+        self.release_lock(lock_data as *mut winapi::ctypes::c_void);
     }
-    fn wunlock(&self, _mutex_handle: *mut c_void) -> () {
+    fn wunlock(&self, lock_data: *mut c_void) -> () {
+        self.release_lock(lock_data as *mut winapi::ctypes::c_void);
     }
 }

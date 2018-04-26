@@ -11,10 +11,7 @@ unsafe impl MemFileCast for SharedState {}
 
 fn main() {
 
-    #[cfg(unix)]
-    let lock_type = LockType::RwLock;
-    #[cfg(windows)]
-    let lock_type = LockType::None;
+    let lock_type = LockType::Mutex;
 
     //Create a new shared MemFile
     let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link"),  lock_type, 4096) {
