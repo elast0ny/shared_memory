@@ -38,13 +38,13 @@ extern crate cfg_if;
 
 //Load up the proper implementations
 cfg_if! {
-    if #[cfg(windows)] {
+    if #[cfg(target_os="windows")] {
         mod win;
         use win as os_impl;
-    } else if #[cfg(unix)] {
+    } else if #[cfg(target_os="linux")] {
         mod nix;
         use nix as os_impl;
-    } else if #[cfg(macos)] {
+    } else if #[cfg(target_os="macos")] {
         mod macos;
         use macos as os_impl;
     } else {
