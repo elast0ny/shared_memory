@@ -290,7 +290,7 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
     //increase size to requested size + meta
     let actual_size: usize = new_file.size + lock_data_sz + shared_data_sz;
 
-    #[cfg(target_arch="i686")]
+    #[cfg(target_arch="x86")]
     let size: i32 = actual_size as i32;
     #[cfg(target_arch="x86_64")]
     let size: i64 = actual_size as i64;
