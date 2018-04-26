@@ -17,10 +17,10 @@ use self::winapi::um::synchapi::{
 };
 
 use super::{std,
-    MemFile,
+    SharedMem,
     LockType,
     LockNone,
-    MemFileLockImpl,
+    SharedMemLockImpl,
 };
 
 use std::path::PathBuf;
@@ -60,12 +60,12 @@ pub struct MemMetadata<'a> {
     ///Pointer to user data
     pub data: *mut c_void,
     //Our custom lock implementation
-    pub lock_impl : &'a MemFileLockImpl,
+    pub lock_impl : &'a SharedMemLockImpl,
 }
 
 ///Teardown UnmapViewOfFile and close CreateMapping handle
 impl<'a> Drop for MemMetadata<'a> {
-    ///Takes care of properly closing the MemFile (munmap(), shmem_unlink(), close())
+    ///Takes care of properly closing the SharedMem (munmap(), shmem_unlink(), close())
     fn drop(&mut self) {
         //If we have an open lock handle
         if self.lock_data_is_handle {
@@ -83,8 +83,8 @@ impl<'a> Drop for MemMetadata<'a> {
     }
 }
 
-//Opens an existing MemFile, OpenFileMappingA()/MapViewOfFile()/VirtualQuery()
-pub fn open(mut new_file: MemFile) -> Result<MemFile> {
+//Opens an existing SharedMem, OpenFileMappingA()/MapViewOfFile()/VirtualQuery()
+pub fn open(mut new_file: SharedMem) -> Result<SharedMem> {
 
     //If there is a link file, this isnt a raw mapping
     let is_raw: bool = !new_file.link_path.is_some();
@@ -93,7 +93,7 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
     let mapping_path = match new_file.real_path {
         Some(ref path) => path.clone(),
         None => {
-            panic!("Tried to open MemFile with no real_path");
+            panic!("Tried to open SharedMem with no real_path");
         },
     };
 
@@ -226,8 +226,8 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
     Ok(new_file)
 }
 
-//Creates a new MemFile, CreateFileMappingA()/MapViewOfFile()
-pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
+//Creates a new SharedMem, CreateFileMappingA()/MapViewOfFile()
+pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem> {
 
     // real_path is either :
     // 1. Specified directly
@@ -263,7 +263,7 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
                 String::from(unique_name.trim_matches('_'))
             } else {
                 //lib.rs shouldnt call us without either real_path or link_path set
-                panic!("Trying to create MemFile without any name");
+                panic!("Trying to create SharedMem without any name");
             }
         }
     };
@@ -275,7 +275,7 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
     let mut lock_ind: u8 = 0;
     let mut lock_data_sz: usize = 0;
 
-    //If not raw, add our MemFile metadata
+    //If not raw, add our SharedMem metadata
     if !is_raw {
         //Get the total size with all the added metadata
         shared_data_sz = (size_of::<SharedData>() + 3) & !(0x03 as usize);
@@ -422,7 +422,7 @@ impl Mutex {
         unsafe {ReleaseMutex(handle)};
     }
 }
-impl MemFileLockImpl for Mutex {
+impl SharedMemLockImpl for Mutex {
 
     fn size_of() -> usize {
         //A mutex is identified by a Windows namespace with a max of 255 characters

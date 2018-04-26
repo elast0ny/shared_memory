@@ -5,12 +5,12 @@
 //! ## Examples
 //! Creator based on examples/create.rs
 //! ```
-//! //Create a MemFile at `pwd`\shared_mem.link that links to a shared memory mapping of size 4096 and managed by a mutex.
-//! let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link") LockType::Mutex, 4096).unwrap();
+//! //Create a SharedMem at `pwd`\shared_mem.link that links to a shared memory mapping of size 4096 and managed by a mutex.
+//! let mut my_shmem: SharedMem = match SharedMem::create(PathBuf::from("shared_mem.link") LockType::Mutex, 4096).unwrap();
 //! //Set explicit scope for the lock (no need to call drop(shared_data))
 //! {
 //!     //Acquire write lock
-//!     let mut shared_data = match mem_file.wlock_as_slice::<u8>().unwrap();
+//!     let mut shared_data = match my_shmem.wlock_as_slice::<u8>().unwrap();
 //!     let src = b"Some string you want to share\x00";
 //!     //Write to the shared memory
 //!     shared_data[0..src.len()].copy_from_slice(src);
@@ -19,12 +19,12 @@
 //!
 //! Slave based on examples/open.rs
 //! ```
-// Open an existing MemFile from `pwd`\shared_mem.link
-//! let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")).unwrap();
+// Open an existing SharedMem from `pwd`\shared_mem.link
+//! let mut my_shmem: SharedMem = match SharedMem::open(PathBuf::from("shared_mem.link")).unwrap();
 //! //Set explicit scope for the lock (no need to call drop(shared_data))
 //! {
 //!     //Acquire read lock
-//!     let mut shared_data = match mem_file.rlock_as_slice::<u8>().unwrap();
+//!     let mut shared_data = match my_shmem.rlock_as_slice::<u8>().unwrap();
 //!     //Print the content of the shared memory as chars
 //!     for byte in &shared_data[0..256] {
 //!         if *byte == 0 { break; }
@@ -65,12 +65,12 @@ use std::slice;
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
 ///Struct used to manipulate the shared memory
-pub struct MemFile<'a> {
-    ///Meta data to help manage this MemFile
+pub struct SharedMem<'a> {
+    ///Meta data to help manage this SharedMem
     meta: Option<os_impl::MemMetadata<'a>>,
-    ///Did we create this MemFile
+    ///Did we create this SharedMem
     owner: bool,
-    ///Path to the MemFile link on disk
+    ///Path to the SharedMem link on disk
     link_path: Option<PathBuf>,
     ///Path to the OS's identifier for the shared memory object
     real_path: Option<String>,
@@ -78,8 +78,8 @@ pub struct MemFile<'a> {
     size: usize,
 }
 
-impl<'a> MemFile<'a> {
-    /// Creates a new MemFile
+impl<'a> SharedMem<'a> {
+    /// Creates a new SharedMem
     ///
     /// This involves creating a "link" on disk specified by the first parameter.
     /// This link contains the OS specific identifier to the shared memory. The usage of such link files
@@ -88,29 +88,29 @@ impl<'a> MemFile<'a> {
     ///
     /// # Examples
     /// ```
-    /// # use mem_file::*;
+    /// # use shared_memory::*;
     /// # use std::path::PathBuf;
-    /// # let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")) {Ok(v) => v, Err(_) => return,};
-    /// //Creates a new shared MemFile named shared_mem.link of size 4096
-    /// let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link"), LockType::Mutex, 4096) {
+    /// # let mut my_shmem: SharedMem = match SharedMem::open(PathBuf::from("shared_mem.link")) {Ok(v) => v, Err(_) => return,};
+    /// //Creates a new shared SharedMem named shared_mem.link of size 4096
+    /// let mut my_shmem: SharedMem = match SharedMem::create(PathBuf::from("shared_mem.link"), LockType::Mutex, 4096) {
     ///     Ok(v) => v,
     ///     Err(e) => {
     ///         println!("Error : {}", e);
-    ///         println!("Failed to create MemFile...");
+    ///         println!("Failed to create SharedMem...");
     ///         return;
     ///     }
     /// };
     /// ```
-    pub fn create(new_link_path: PathBuf, lock_type: LockType, size: usize) -> Result<MemFile<'a>> {
+    pub fn create(new_link_path: PathBuf, lock_type: LockType, size: usize) -> Result<SharedMem<'a>> {
 
         let mut cur_link;
         if new_link_path.is_file() {
-            return Err(From::from("Cannot create MemFile because file already exists"));
+            return Err(From::from("Cannot create SharedMem because file already exists"));
         } else {
             cur_link = File::create(&new_link_path)?;
         }
 
-        let mem_file: MemFile = MemFile {
+        let my_shmem: SharedMem = SharedMem {
             meta: None,
             owner: true,
             link_path: Some(new_link_path),
@@ -118,7 +118,7 @@ impl<'a> MemFile<'a> {
             size: size,
         };
 
-        let created_file = os_impl::create(mem_file, lock_type)?;
+        let created_file = os_impl::create(my_shmem, lock_type)?;
 
         //Write OS specific identifier in link file
         if let Some(ref real_path) = created_file.real_path {
@@ -129,37 +129,37 @@ impl<'a> MemFile<'a> {
                 Err(_) => return Err(From::from("Failed to write info on disk")),
             };
         } else {
-            panic!("os_impl::create() returned succesfully but didnt update MemFile::real_path() !");
+            panic!("os_impl::create() returned succesfully but didnt update SharedMem::real_path() !");
         }
 
         Ok(created_file)
     }
-    ///Opens an existing MemFile
+    ///Opens an existing SharedMem
     ///
     /// This function takes a path to a link file created by create().
     /// Open() will automatically detect the size and locking mechanisms.
     ///
     /// # Examples
     /// ```
-    /// use mem_file::*;
-    /// //Opens an existing shared MemFile named test.txt
-    /// let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")) {
+    /// use shared_memory::*;
+    /// //Opens an existing shared SharedMem named test.txt
+    /// let mut my_shmem: SharedMem = match SharedMem::open(PathBuf::from("shared_mem.link")) {
     ///     Ok(v) => v,
     ///     Err(e) => {
     ///         println!("Error : {}", e);
-    ///         println!("Failed to open MemFile...");
+    ///         println!("Failed to open SharedMem...");
     ///         return;
     ///     }
     /// };
     /// ```
-    pub fn open(existing_link_path: PathBuf) -> Result<MemFile<'a>> {
+    pub fn open(existing_link_path: PathBuf) -> Result<SharedMem<'a>> {
 
         // Make sure the link file exists
         if !existing_link_path.is_file() {
-            return Err(From::from("Cannot open MemFile because file doesnt exists"));
+            return Err(From::from("Cannot open SharedMem because file doesnt exists"));
         }
 
-        let mut mem_file: MemFile = MemFile {
+        let mut my_shmem: SharedMem = SharedMem {
             meta: None,
             owner: false,
             link_path: Some(existing_link_path.clone()),
@@ -172,21 +172,21 @@ impl<'a> MemFile<'a> {
             let mut disk_file = File::open(&existing_link_path)?;
             let mut file_contents: Vec<u8> = Vec::with_capacity(existing_link_path.to_string_lossy().len() + 5);
             disk_file.read_to_end(&mut file_contents)?;
-            mem_file.real_path = Some(String::from_utf8(file_contents)?);
+            my_shmem.real_path = Some(String::from_utf8(file_contents)?);
         }
 
         //Open the shared memory using the real_path
-        os_impl::open(mem_file)
+        os_impl::open(my_shmem)
     }
-    ///Creates a raw shared memory object. Only use this method if you do not wish to have all the nice features of a regular MemFile.
+    ///Creates a raw shared memory object. Only use this method if you do not wish to have all the nice features of a regular SharedMem.
     ///
-    ///This function is useful when creating mappings for libraries/applications that do not use MemFile.
+    ///This function is useful when creating mappings for libraries/applications that do not use SharedMem.
     ///By using this function, you explicitly mean : do not create anything else than a memory mapping.
     ///
     ///The first argument needs to be a valid identifier for the OS in use.
     ///colisions wont be avoided through link files and no meta data (locks) is added to the shared mapping.
-    pub fn create_raw(shmem_path: String, size: usize) -> Result<MemFile<'a>> {
-        let mem_file: MemFile = MemFile {
+    pub fn create_raw(shmem_path: String, size: usize) -> Result<SharedMem<'a>> {
+        let my_shmem: SharedMem = SharedMem {
             meta: None,
             owner: true,
             link_path: None, //Leave this explicitly empty
@@ -194,17 +194,17 @@ impl<'a> MemFile<'a> {
             size: size,
         };
 
-        Ok(os_impl::create(mem_file, LockType::None)?)
+        Ok(os_impl::create(my_shmem, LockType::None)?)
     }
     ///Opens an existing shared memory mappping in raw mode.
     ///This simply opens an existing mapping with no additionnal features (no locking, no metadata, etc...).
     ///
-    ///This function is useful when using mappings not created by mem_file.
+    ///This function is useful when using mappings not created by my_shmem.
     ///
     ///To use this function, you need to pass a valid OS shared memory identifier as an argument.
-    pub fn open_raw(shmem_path: String) -> Result<MemFile<'a>> {
+    pub fn open_raw(shmem_path: String) -> Result<SharedMem<'a>> {
 
-        let mem_file: MemFile = MemFile {
+        let my_shmem: SharedMem = SharedMem {
             meta: None,
             owner: false,
             link_path: None, //Leave this explicity to None to specify raw mode
@@ -213,14 +213,14 @@ impl<'a> MemFile<'a> {
         };
 
         //Open the shared memory using the real_path
-        os_impl::open(mem_file)
+        os_impl::open(my_shmem)
     }
 
-    ///Returns the size of the MemFile
+    ///Returns the size of the SharedMem
     pub fn get_size(&self) -> &usize {
         &self.size
     }
-    ///Returns the link_path of the MemFile
+    ///Returns the link_path of the SharedMem
     pub fn get_link_path(&self) -> Option<&PathBuf> {
         self.link_path.as_ref()
     }
@@ -234,8 +234,8 @@ impl<'a> MemFile<'a> {
     }
 }
 
-impl<'a> Drop for MemFile<'a> {
-    ///Deletes the MemFile artifacts
+impl<'a> Drop for SharedMem<'a> {
+    ///Deletes the SharedMem artifacts
     fn drop(&mut self) {
         //Delete file on disk if we created it
         if self.owner {
@@ -245,18 +245,18 @@ impl<'a> Drop for MemFile<'a> {
                 }
             }
         }
-        //Drop our internal view of the MemFile
+        //Drop our internal view of the SharedMem
         if let Some(meta) = self.meta.take() {
             drop(meta);
         }
     }
 }
 
-/// Read [WARNING](trait.MemFileCast.html#warning) before use
+/// Read [WARNING](trait.SharedMemCast.html#warning) before use
 ///
 /// Trait used to indicate that a type can be cast over the shared memory.
 ///
-/// For now, mem_file implements the trait on almost all primitive types.
+/// For now, shared_memory implements the trait on almost all primitive types.
 ///
 /// ### __<span style="color:red">WARNING</span>__
 ///
@@ -281,30 +281,30 @@ impl<'a> Drop for MemFile<'a> {
 ///     message: [u8; 256],
 /// }
 /// //WARNING : Only do this if you know what you're doing.
-/// unsafe impl MemFileCast for SharedState {}
+/// unsafe impl SharedMemCast for SharedState {}
 ///
 /// <...>
 ///
 /// {
-///     let mut shared_state: WriteLockGuard<SharedState> = match mem_file.wlock().unwrap();
+///     let mut shared_state: WriteLockGuard<SharedState> = match my_shmem.wlock().unwrap();
 ///     shared_state.num_listenners = 0;
 ///     let src = b"Welcome, we currently have 0 listenners !\x00";
 ///     shared_state.message[0..src.len()].copy_from_slice(src);
 /// }
 ///```
-pub unsafe trait MemFileCast {}
-unsafe impl MemFileCast for bool {}
-unsafe impl MemFileCast for char {}
-unsafe impl MemFileCast for str {}
-unsafe impl MemFileCast for i8 {}
-unsafe impl MemFileCast for i16 {}
-unsafe impl MemFileCast for i32 {}
-unsafe impl MemFileCast for u8 {}
-unsafe impl MemFileCast for i64 {}
-unsafe impl MemFileCast for u16 {}
-unsafe impl MemFileCast for u64 {}
-unsafe impl MemFileCast for isize {}
-unsafe impl MemFileCast for u32 {}
-unsafe impl MemFileCast for usize {}
-unsafe impl MemFileCast for f32 {}
-unsafe impl MemFileCast for f64 {}
+pub unsafe trait SharedMemCast {}
+unsafe impl SharedMemCast for bool {}
+unsafe impl SharedMemCast for char {}
+unsafe impl SharedMemCast for str {}
+unsafe impl SharedMemCast for i8 {}
+unsafe impl SharedMemCast for i16 {}
+unsafe impl SharedMemCast for i32 {}
+unsafe impl SharedMemCast for u8 {}
+unsafe impl SharedMemCast for i64 {}
+unsafe impl SharedMemCast for u16 {}
+unsafe impl SharedMemCast for u64 {}
+unsafe impl SharedMemCast for isize {}
+unsafe impl SharedMemCast for u32 {}
+unsafe impl SharedMemCast for usize {}
+unsafe impl SharedMemCast for f32 {}
+unsafe impl SharedMemCast for f64 {}

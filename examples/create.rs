@@ -1,5 +1,5 @@
-extern crate mem_file;
-use mem_file::*;
+extern crate shared_memory;
+use shared_memory::*;
 use std::path::PathBuf;
 
 struct SharedState {
@@ -7,18 +7,18 @@ struct SharedState {
     message: [u8; 256],
 }
 //WARNING : Only do this if you know what you're doing.
-unsafe impl MemFileCast for SharedState {}
+unsafe impl SharedMemCast for SharedState {}
 
 fn main() {
 
     let lock_type = LockType::Mutex;
 
-    //Create a new shared MemFile
-    let mut mem_file: MemFile = match MemFile::create(PathBuf::from("shared_mem.link"),  lock_type, 4096) {
+    //Create a new shared SharedMem
+    let mut my_shmem: SharedMem = match SharedMem::create(PathBuf::from("shared_mem.link"),  lock_type, 4096) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);
-            println!("Failed to create MemFile...");
+            println!("Failed to create SharedMem...");
             return;
         }
     };
@@ -26,13 +26,13 @@ fn main() {
     println!("Created link file \"{}
     Backed by OS identifier : \"{}\"
     Size : 0x{:x}",
-    mem_file.get_link_path().unwrap().to_string_lossy(),
-    mem_file.get_real_path().unwrap(),
-    mem_file.get_size());
+    my_shmem.get_link_path().unwrap().to_string_lossy(),
+    my_shmem.get_real_path().unwrap(),
+    my_shmem.get_size());
 
     //Initialize the memory with default values
     {
-        let mut shared_state: WriteLockGuard<SharedState> = match mem_file.wlock() {
+        let mut shared_state: WriteLockGuard<SharedState> = match my_shmem.wlock() {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };
@@ -50,7 +50,7 @@ fn main() {
     loop {
 
         //Acquire read lock
-        let shared_state: ReadLockGuard<SharedState> = match mem_file.rlock() {
+        let shared_state: ReadLockGuard<SharedState> = match my_shmem.rlock() {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire read lock !"),
         };
@@ -68,7 +68,7 @@ fn main() {
 
     //Modify the shared memory just for fun
     {
-        let mut shared_state: WriteLockGuard<SharedState> = match mem_file.wlock() {
+        let mut shared_state: WriteLockGuard<SharedState> = match my_shmem.wlock() {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };

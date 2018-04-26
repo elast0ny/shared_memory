@@ -32,10 +32,10 @@ use self::nix::fcntl::OFlag;
 use self::nix::unistd::{close, ftruncate};
 
 use super::{std,
-    MemFile,
+    SharedMem,
     LockType,
     LockNone,
-    MemFileLockImpl,
+    SharedMemLockImpl,
 };
 
 use std::path::PathBuf;
@@ -73,13 +73,13 @@ pub struct MemMetadata<'a> {
     ///Pointer to user data
     pub data: *mut c_void,
     //Our custom lock implementation
-    pub lock_impl : &'a MemFileLockImpl,
+    pub lock_impl : &'a SharedMemLockImpl,
 
 }
 
 ///shared memory teardown for linux
 impl<'a> Drop for MemMetadata<'a> {
-    ///Takes care of properly closing the MemFile (munmap(), shmem_unlink(), close())
+    ///Takes care of properly closing the SharedMem (munmap(), shmem_unlink(), close())
     fn drop(&mut self) {
 
         //Unmap memory
@@ -89,7 +89,7 @@ impl<'a> Drop for MemMetadata<'a> {
                     //println!("munmap()");
                 },
                 Err(e) => {
-                    println!("Failed to unmap memory while dropping MemFile !");
+                    println!("Failed to unmap memory while dropping SharedMem !");
                     println!("{}", e);
                 },
             };
@@ -104,7 +104,7 @@ impl<'a> Drop for MemMetadata<'a> {
                         //println!("shm_unlink()");
                     },
                     Err(e) => {
-                        println!("Failed to shm_unlink while dropping MemFile !");
+                        println!("Failed to shm_unlink while dropping SharedMem !");
                         println!("{}", e);
                     },
                 };
@@ -115,7 +115,7 @@ impl<'a> Drop for MemMetadata<'a> {
                     //println!("close()");
                 },
                 Err(e) => {
-                    println!("Failed to close shmem fd while dropping MemFile !");
+                    println!("Failed to close shmem fd while dropping SharedMem !");
                     println!("{}", e);
                 },
             };
@@ -123,8 +123,8 @@ impl<'a> Drop for MemMetadata<'a> {
     }
 }
 
-//Opens an existing MemFile, shm_open()s it then mmap()s it
-pub fn open(mut new_file: MemFile) -> Result<MemFile> {
+//Opens an existing SharedMem, shm_open()s it then mmap()s it
+pub fn open(mut new_file: SharedMem) -> Result<SharedMem> {
 
 
     //If there is a link file, this isnt a raw mapping
@@ -134,7 +134,7 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
     let shmem_path = match new_file.real_path {
         Some(ref path) => path.clone(),
         None => {
-            panic!("Tried to open MemFile with no real_path");
+            panic!("Tried to open SharedMem with no real_path");
         },
     };
 
@@ -177,7 +177,7 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
         },
     };
 
-    //Return memfile with no meta data or locks
+    //Return SharedMem with no meta data or locks
     if is_raw {
         new_file.size = file_stat.st_size as usize;
         new_file.meta = Some(
@@ -222,14 +222,14 @@ pub fn open(mut new_file: MemFile) -> Result<MemFile> {
     //Set the proper user data size considering our metadata
     new_file.size = meta.map_size - shared_data_sz - lock_data_sz;
 
-    //This meta struct is now link to the MemFile
+    //This meta struct is now link to the SharedMem
     new_file.meta = Some(meta);
 
     Ok(new_file)
 }
 
-//Creates a new MemFile, shm_open()s it then mmap()s it
-pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
+//Creates a new SharedMem, shm_open()s it then mmap()s it
+pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem> {
 
     // real_path is either :
     // 1. Specified directly
@@ -244,7 +244,7 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
     } else {
         let link_path: &PathBuf = match new_file.link_path {
             Some(ref path) => path,
-            None => panic!("Trying to create MemFile without link_path set"),
+            None => panic!("Trying to create SharedMem without link_path set"),
         };
 
         let abs_disk_path: PathBuf = link_path.canonicalize()?;
@@ -269,7 +269,7 @@ pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
     let mut lock_ind: u8 = 0;
     let mut lock_data_sz: usize = 0;
 
-    //Set our meta data sizes if this is not a raw memfile
+    //Set our meta data sizes if this is not a raw SharedMem
     if !is_raw {
         shared_data_sz = (size_of::<SharedData>() + 3) & !(0x03 as usize);
         lock_ind = locktype_info.0 as u8;
@@ -410,7 +410,7 @@ fn supported_locktype_from_ind(index: usize) -> (LockType, usize) {
 /* Lock Implementations */
 //Mutex
 pub struct Mutex {}
-impl MemFileLockImpl for Mutex {
+impl SharedMemLockImpl for Mutex {
 
     fn size_of() -> usize {
         size_of::<pthread_mutex_t>()
@@ -441,7 +441,7 @@ impl MemFileLockImpl for Mutex {
 
 //RwLock
 pub struct RwLock {}
-impl MemFileLockImpl for RwLock {
+impl SharedMemLockImpl for RwLock {
 
     fn size_of() -> usize {
         size_of::<pthread_rwlock_t>()

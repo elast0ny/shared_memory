@@ -1,5 +1,5 @@
-extern crate mem_file;
-use mem_file::*;
+extern crate shared_memory;
+use shared_memory::*;
 use std::path::PathBuf;
 use std::str::from_utf8_unchecked;
 
@@ -15,12 +15,12 @@ fn from_ut8f_to_null(bytes: &[u8], max_len: usize) -> &str {
 
 fn main() {
 
-    //Open an existing shared MemFile
-    let mut mem_file: MemFile = match MemFile::open(PathBuf::from("shared_mem.link")) {
+    //Open an existing shared SharedMem
+    let mut my_shmem: SharedMem = match SharedMem::open(PathBuf::from("shared_mem.link")) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);
-            println!("Failed to open MemFile...");
+            println!("Failed to open SharedMem...");
             return;
         }
     };
@@ -28,15 +28,15 @@ fn main() {
     println!("Openned link file \"{}\"
     Backed by OS identifier : \"{}\"
     Size : 0x{:x}",
-    mem_file.get_link_path().unwrap().to_string_lossy(),
-    mem_file.get_real_path().unwrap(),
-    mem_file.get_size());
+    my_shmem.get_link_path().unwrap().to_string_lossy(),
+    my_shmem.get_real_path().unwrap(),
+    my_shmem.get_size());
 
     println!("Trying to acquire read lock !");
     //Read the original contents
     {
         //Acquire read lock
-        let read_buf: ReadLockGuardSlice<u8> = match mem_file.rlock_as_slice() {
+        let read_buf: ReadLockGuardSlice<u8> = match my_shmem.rlock_as_slice() {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire read lock !"),
         };
@@ -54,7 +54,7 @@ fn main() {
     println!("Incrementing shared listenner count !");
     //Update the shared memory
     {
-        let mut num_listenners: WriteLockGuard<u32> = match mem_file.wlock() {
+        let mut num_listenners: WriteLockGuard<u32> = match my_shmem.wlock() {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };
@@ -64,7 +64,7 @@ fn main() {
     //Read the contents of the buffer again
     std::thread::sleep(std::time::Duration::from_secs(1));
     {
-        let read_buf = match mem_file.rlock_as_slice::<u8>() {
+        let read_buf = match my_shmem.rlock_as_slice::<u8>() {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire read lock !"),
         };

@@ -1,10 +1,10 @@
 compile_error!("MacOs support coming soon");
 
 use super::{std,
-    MemFile,
+    SharedMem,
     LockType,
     LockNone,
-    MemFileLockImpl,
+    SharedMemLockImpl,
 };
 
 use std::path::PathBuf;
@@ -42,24 +42,24 @@ pub struct MemMetadata<'a> {
     ///Pointer to user data
     pub data: *mut c_void,
     //Our custom lock implementation
-    pub lock_impl : &'a MemFileLockImpl,
+    pub lock_impl : &'a SharedMemLockImpl,
 
 }
 
 ///shared memory teardown for linux
 impl<'a> Drop for MemMetadata<'a> {
-    ///Takes care of properly closing the MemFile
+    ///Takes care of properly closing the SharedMem
     fn drop(&mut self) {
     }
 }
 
-//Opens an existing MemFile
-pub fn open(mut new_file: MemFile) -> Result<MemFile> {
+//Opens an existing SharedMem
+pub fn open(mut new_file: SharedMem) -> Result<SharedMem> {
     Ok(new_file)
 }
 
-//Creates a new MemFile
-pub fn create(mut new_file: MemFile, lock_type: LockType) -> Result<MemFile> {
+//Creates a new SharedMem
+pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem> {
     Ok(new_file)
 }
 
@@ -85,7 +85,7 @@ fn supported_locktype_from_ind(index: usize) -> (LockType, usize) {
 /* Lock Implementations */
 //Mutex
 pub struct Mutex {}
-impl MemFileLockImpl for Mutex {
+impl SharedMemLockImpl for Mutex {
 
     fn size_of() -> usize {
         0
@@ -104,7 +104,7 @@ impl MemFileLockImpl for Mutex {
 
 //RwLock
 pub struct RwLock {}
-impl MemFileLockImpl for RwLock {
+impl SharedMemLockImpl for RwLock {
 
     fn size_of() -> usize {
         0

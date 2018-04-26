@@ -1,14 +1,14 @@
 [package]
-name = "mem_file"
-description = "A wrapper around native shared memory for Linux and Windows"
+name = "shared_memory"
+description = "A wrapper around native shared memory for use across processes"
 version = "0.1.0"
 authors = ["ElasT0ny <elast0ny00@gmail.com>"]
 license = "MIT OR Apache-2.0"
 
 #Extra fields for crates.io
 readme = "README.md"
-documentation = "https://docs.rs/mem_file"
-repository  = "https://github.com/elast0ny/mem_file"
+documentation = "https://docs.rs/shared_memory"
+repository  = "https://github.com/elast0ny/shared_memory-rs"
 keywords = ["shmem", "shared", "memory", "inter-process", "process"]
 categories = ["os::unix-apis","os::windows-apis","memory-management","concurrency","asynchronous"]
 

@@ -8,7 +8,7 @@ sudo: required
 
 env:
   global:
-    - CRATE_NAME=mem_file
+    - CRATE_NAME=shared_memory
 
 matrix:
   include:
