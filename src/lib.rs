@@ -44,6 +44,9 @@ cfg_if! {
     } else if #[cfg(unix)] {
         mod nix;
         use nix as os_impl;
+    } else if #[cfg(macos)] {
+        mod macos;
+        use macos as os_impl;
     } else {
         compile_error!("This library isnt implemented for this platform...");
     }
