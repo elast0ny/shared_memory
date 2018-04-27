@@ -290,12 +290,7 @@ pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem>
     //increase size to requested size + meta
     let actual_size: usize = new_file.size + lock_data_sz + shared_data_sz;
 
-    #[cfg(target_arch="x86")]
-    let size: i32 = actual_size as i32;
-    #[cfg(target_arch="x86_64")]
-    let size: i64 = actual_size as i64;
-
-    match ftruncate(shmem_fd, size) {
+    match ftruncate(shmem_fd, actual_size as _) {
         Ok(_) => {},
         Err(e) => {
             match shm_unlink(real_path.as_str()) {_=>{},};
