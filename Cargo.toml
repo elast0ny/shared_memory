@@ -1,6 +1,6 @@
 [package]
 name = "shared_memory"
-description = "A wrapper around native shared memory for use across processes"
+description = "A user friendly crate that allows you to share memory between processes"
 version = "0.1.0"
 authors = ["ElasT0ny <elast0ny00@gmail.com>"]
 license = "MIT OR Apache-2.0"

@@ -1,6 +1,4 @@
-//! Provides a wrapper around native shared memory.
-//!
-//! This crate is ideal if you need to share large amounts of data with another process purely through memory.
+//! A user friendly crate that allows you to share memory between __processes__
 //!
 //! ## Examples
 //! Creator based on examples/create.rs

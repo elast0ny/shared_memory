@@ -5,9 +5,7 @@
 [![mio](https://docs.rs/shared_memory/badge.svg)](https://docs.rs/shared_memory/)
 ![Lines of Code](https://tokei.rs/b1/github/elast0ny/shared_memory-rs)
 
-This crate provides a simple interface to shared memory OS APIs.
-
-Shared memory is well suited for sharing large amounts of data between processes as it relies purely on memory accesses. Other than when managing concurent access through locks/events, reading and writing memory from a SharedMem relies only on CPU features (the operating system is not involved, no context switches like system calls, etc...).
+A user friendly crate that allows you to share memory between __processes__.
 
 ## Usage
 
