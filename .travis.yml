@@ -60,9 +60,10 @@ matrix:
     #- env: TARGET=x86_64-unknown-netbsd DISABLE_TESTS=1
 
     # Windows
-    #- env: TARGET=x86_64-pc-windows-gnu DISABLE_TESTS=1
-    - env: TARGET=i686-pc-windows-msvc DISABLE_TESTS=1
-    - env: TARGET=x86_64-pc-windows-msvc DISABLE_TESTS=1
+    - env: TARGET=i686-pc-windows-gnu	 DISABLE_TESTS=1
+    - env: TARGET=x86_64-pc-windows-gnu DISABLE_TESTS=1
+    #- env: TARGET=i686-pc-windows-msvc DISABLE_TESTS=1
+    #- env: TARGET=x86_64-pc-windows-msvc DISABLE_TESTS=1
 
     # Testing other channels
     #- env: TARGET=x86_64-unknown-linux-gnu
