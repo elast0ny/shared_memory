@@ -45,12 +45,12 @@ let mut my_shmem: SharedMem = match SharedMem::open(PathBuf::from("shared_mem.li
 
 | Feature| Description | Linux | Windows|  Mac<sup>[1]</sup>|
 |--------|-------------|:-----:|:------:|:----:|
-|SharedMem.create/open|Create/open a SharedMem|✔|✔|X|
-|SharedMem.*_raw|Create/open a raw shared memory map|✔|✔|X|
-|LockType::Mutex|Mutually exclusive lock|✔|✔</sup>|X|
-|LockType::RwLock|Exlusive write/shared read|✔|X<sup>[2]</sup>|X|
+|SharedMem.create/open|Create/open a SharedMem|✔|✔|✔|
+|SharedMem.*_raw|Create/open a raw shared memory map|✔|✔|✔|
+|LockType::Mutex|Mutually exclusive lock|✔|✔</sup>|✔|
+|LockType::RwLock|Exlusive write/shared read|✔|X<sup>[2]</sup>|✔|
 
-<sup>[1] I do not own a Mac so cannot implement that side of things myself. Contributions are welcome !</sup>
+<sup>[1] I do not own a Mac so cannot properly test this library other than building against OSX.</sup>
 
 <sup>[2] Windows provides no default implementation of Rwlock that is safe to share between processes. See [Issue #1](https://github.com/elast0ny/shared_memory-rs/issues/1)</sup>
 
