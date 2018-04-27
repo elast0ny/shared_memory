@@ -26,5 +26,3 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 winapi = {version = "0.3", features = ["winbase", "handleapi", "fileapi", "memoryapi", "errhandlingapi", "synchapi"]}
-
-[target.'cfg(macos)'.dependencies]
