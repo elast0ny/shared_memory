@@ -40,11 +40,11 @@ cfg_if! {
         mod win;
         use win as os_impl;
     } else if #[cfg(target_os="linux")] {
-        mod linux;
-        use linux as os_impl;
+        mod nix;
+        use nix as os_impl;
     } else if #[cfg(target_os="macos")] {
-        mod macos;
-        use macos as os_impl;
+        mod nix;
+        use nix as os_impl;
     } else {
         compile_error!("This library isnt implemented for this platform...");
     }
