@@ -251,7 +251,7 @@ pub fn open(mut new_file: SharedMem) -> Result<SharedMem> {
 pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem> {
     #[cfg(target_os="macos")]
     let max_path_len = 30;
-    #[cfg(target_os="linux")]
+    #[cfg(any(target_os="freebsd", target_os="linux"))]
     let max_path_len = 255;
     // real_path is either :
     // 1. Specified directly
