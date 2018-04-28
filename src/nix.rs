@@ -142,8 +142,6 @@ pub fn open(mut new_file: SharedMem) -> Result<SharedMem> {
         },
     };
 
-    println!("Openning shared mem \"{}\"", shmem_path);
-
     //Open shared memory
     let map_fd = match shm_open(
         shmem_path.as_str(),
@@ -242,8 +240,6 @@ pub fn open(mut new_file: SharedMem) -> Result<SharedMem> {
             LockType::RwLock => &RwLock{},
         },
     };
-    //Set the proper user data size considering our metadata
-    new_file.size = meta.map_size - shared_data_sz - lock_data_sz;
 
     //This meta struct is now link to the SharedMem
     new_file.meta = Some(meta);
