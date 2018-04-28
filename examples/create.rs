@@ -23,7 +23,7 @@ fn main() {
         }
     };
 
-    println!("Created link file \"{}
+    println!("Created link file \"{}\"
     Backed by OS identifier : \"{}\"
     Size : 0x{:x}",
     my_shmem.get_link_path().unwrap().to_string_lossy(),
