@@ -51,6 +51,9 @@ type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 struct SharedData {
     //This field is used to transmit the locking mechanism to an openner
     lock_ind: u8,
+
+    //This field holds the requested size given to SharedMem.create()
+    user_size: usize,
 }
 
 pub struct MemMetadata<'a> {
@@ -205,6 +208,25 @@ pub fn open(mut new_file: SharedMem) -> Result<SharedMem> {
     //Ensure our shared data is 4 byte aligned
     let shared_data_sz = (size_of::<SharedData>() + 3) & !(0x03 as usize);
     let lock_data_sz = lock_info.1;
+
+    let mut error: Option<String> = None;
+
+    //Do some validation
+    if shared_data.user_size == 0 {
+        error = Some(String::from("Shared memory size is invalid"));
+    } else if (shared_data_sz + lock_data_sz) >= file_stat.st_size as usize {
+        error = Some(String::from("Shared memory size is too small to hold our metadata"));
+    } else if shared_data.user_size > (file_stat.st_size as usize - (shared_data_sz + lock_data_sz)) {
+        error = Some(String::from("Shared memory size does not match claimed size"));
+    }
+
+    if let Some(e) = error {
+        match unsafe {munmap(map_addr as *mut _, file_stat.st_size as usize)} {_=>{},};
+        match close(map_fd) {_=>{},};
+        return Err(From::from(e));
+    }
+
+    new_file.size = shared_data.user_size;
 
     let meta: MemMetadata = MemMetadata {
         owner: false,
@@ -387,6 +409,7 @@ pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem>
         &mut (*meta.shared_data)
     };
     shared_data.lock_ind = lock_ind;
+    shared_data.user_size = new_file.size;
 
     //Init Lock data
     match lock_type {
