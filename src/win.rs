@@ -2,6 +2,7 @@ extern crate winapi;
 
 use self::winapi::shared::ntdef::{NULL};
 use self::winapi::shared::minwindef::{FALSE};
+use self::winapi::shared::winerror::*;
 use self::winapi::um::winbase::*;
 use self::winapi::um::winnt::*;
 use self::winapi::um::handleapi::*;
@@ -229,11 +230,13 @@ pub fn open(mut new_file: SharedMem) -> Result<SharedMem> {
 //Creates a new SharedMem, CreateFileMappingA()/MapViewOfFile()
 pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem> {
 
+    let max_path_len = 260;
+
     // real_path is either :
     // 1. Specified directly
     // 2. Needs to be generated (link_file needs to exist)
     let is_raw: bool;
-    let real_path: String = match new_file.real_path {
+    let mut real_path: String = match new_file.real_path {
         Some(ref path) => {
             is_raw = true;
             path.clone()
@@ -248,7 +251,14 @@ pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem>
 
                 //Get unique name for shmem object
                 let abs_disk_path: PathBuf = file_path.canonicalize()?;
-                let chars = abs_disk_path.to_string_lossy();
+                let mut chars: &str = &abs_disk_path.to_string_lossy();
+
+                //Make sure we generate a path that isnt too long
+                let str_len: usize = chars.len();
+                if str_len > max_path_len {
+                    chars = &chars[str_len-max_path_len..str_len];
+                }
+
                 let mut unique_name: String = String::with_capacity(chars.len());
                 let mut chars = chars.chars();
                 chars.next();
@@ -284,23 +294,47 @@ pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem>
     }
 
     let actual_size: usize = new_file.size + lock_data_sz + shared_data_sz;
+    let mut map_handle = NULL;
+    let mut retry: usize = 0;
+    let mut orig_path: String = String::with_capacity(real_path.len() + 4);
 
-    //Create mapping and map to our address space
-    let map_handle = unsafe {
-        let high_size: u32 = (actual_size as u64 & 0xFFFFFFFF00000000 as u64) as u32;
-        let low_size: u32 = (actual_size as u64 & 0xFFFFFFFF as u64) as u32;
-        CreateFileMappingA(
-            INVALID_HANDLE_VALUE,
-            null_mut(),
-            PAGE_READWRITE,
-            high_size,
-            low_size,
-            CString::new(real_path.clone())?.as_ptr())
-    };
-    if map_handle == NULL {
-        return Err(From::from(format!("CreateFileMappingA failed with {}", unsafe{GetLastError()})));
+    while map_handle == NULL {
+        //Create mapping and map to our address space
+        map_handle = unsafe {
+            let high_size: u32 = (actual_size as u64 & 0xFFFFFFFF00000000 as u64) as u32;
+            let low_size: u32 = (actual_size as u64 & 0xFFFFFFFF as u64) as u32;
+            CreateFileMappingA(
+                INVALID_HANDLE_VALUE,
+                null_mut(),
+                PAGE_READWRITE,
+                high_size,
+                low_size,
+                CString::new(real_path.clone())?.as_ptr())
+        };
+        let last_error = unsafe{GetLastError()};
+        if map_handle == NULL {
+            return Err(From::from(format!("CreateFileMappingA failed with {}", last_error)));
+        } else if last_error == ERROR_ALREADY_EXISTS {
+            //CreateFileMapping returned a handle to the existing mapping
+            unsafe { CloseHandle(map_handle)};
+            map_handle = NULL;
+
+            if retry == 0 {
+                 orig_path = real_path.clone();
+            }
+            real_path = format!("{}_{}", orig_path, retry);
+            retry += 1;
+
+            //Make sure we generated a path that isnt too long
+            let str_len: usize = real_path.len();
+            if str_len > max_path_len {
+                real_path = real_path[str_len-max_path_len..str_len].to_string();
+            }
+
+            println!("Mapping with same name already exists ! Trying another name \"{}\"", real_path);
+            continue;
+        }
     }
-
     new_file.real_path = Some(real_path.clone());
 
     let map_addr = unsafe {
