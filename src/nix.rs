@@ -231,6 +231,9 @@ pub fn open(mut new_file: SharedMem) -> Result<SharedMem> {
 
 //Creates a new SharedMem, shm_open()s it then mmap()s it
 pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem> {
+    #[cfg(target_os="macos")]
+    let max_path_len = 30;
+    #[cfg(target_os="linux")]
     let max_path_len = 255;
     // real_path is either :
     // 1. Specified directly
@@ -253,8 +256,8 @@ pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem>
 
         //Make sure we generated a path that isnt too long
         let str_len: usize = chars.len();
-        if str_len >= max_path_len {
-            chars = &chars[str_len-max_path_len..max_path_len];
+        if str_len > max_path_len {
+            chars = &chars[str_len-max_path_len..str_len];
         }
 
         let mut unique_name: String = String::with_capacity(chars.len());
@@ -308,8 +311,8 @@ pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem>
 
                         //Make sure we generated a path that isnt too long
                         let str_len: usize = real_path.len();
-                        if str_len >= max_path_len {
-                            real_path = real_path[str_len-max_path_len..max_path_len].to_string();
+                        if str_len > max_path_len {
+                            real_path = real_path[str_len-max_path_len..str_len].to_string();
                         }
                         println!("Unique shared memory name already exists... Trying with \"{}\"", real_path);
                         continue
