@@ -27,6 +27,7 @@ use self::libc::{
 };
 
 use self::nix::sys::mman::{mmap, munmap, shm_open, shm_unlink, ProtFlags, MapFlags};
+use self::nix::errno::Errno;
 use self::nix::sys::stat::{fstat, FileStat, Mode};
 use self::nix::fcntl::OFlag;
 use self::nix::unistd::{close, ftruncate};
@@ -230,17 +231,17 @@ pub fn open(mut new_file: SharedMem) -> Result<SharedMem> {
 
 //Creates a new SharedMem, shm_open()s it then mmap()s it
 pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem> {
-
+    let max_path_len = 255;
     // real_path is either :
     // 1. Specified directly
     // 2. Needs to be generated (link_file needs to exist)
 
     let is_raw = new_file.real_path.is_some();
-    let real_path: String;
+    let mut real_path: String;
     //The user specified a real_path (raw mode)
     if is_raw {
         real_path = new_file.real_path.as_ref().unwrap().clone();
-    //We will generate our our real_path
+    //We will generate a unique real_path
     } else {
         let link_path: &PathBuf = match new_file.link_path {
             Some(ref path) => path,
@@ -248,7 +249,14 @@ pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem>
         };
 
         let abs_disk_path: PathBuf = link_path.canonicalize()?;
-        let chars = abs_disk_path.to_string_lossy();
+        let mut chars: &str = &abs_disk_path.to_string_lossy();
+
+        //Make sure we generated a path that isnt too long
+        let str_len: usize = chars.len();
+        if str_len >= max_path_len {
+            chars = &chars[str_len-max_path_len..max_path_len];
+        }
+
         let mut unique_name: String = String::with_capacity(chars.len());
         let mut chars = chars.chars();
         chars.next();
@@ -276,15 +284,41 @@ pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem>
         lock_data_sz = locktype_info.1;
     }
 
-    //Create shared memory
-    let shmem_fd = match shm_open(
-        real_path.as_str(), //Unique name that usualy pops up in /dev/shm/
-        OFlag::O_CREAT|OFlag::O_EXCL|OFlag::O_RDWR, //create exclusively (error if collision) and read/write to allow resize
-        Mode::S_IRUSR|Mode::S_IWUSR //Permission allow user+rw
-    ) {
-        Ok(v) => v,
-        Err(e) => return Err(From::from(format!("shm_open() failed with :\n{}", e))),
-    };
+    let mut shmem_fd: RawFd = 0;
+    let mut retry: usize = 0;
+    let mut orig_path: String = String::with_capacity(real_path.len() + 4);
+
+    while shmem_fd == 0 {
+        //Create shared memory
+        shmem_fd = match shm_open(
+            real_path.as_str(), //Unique name that usualy pops up in /dev/shm/
+            OFlag::O_CREAT|OFlag::O_EXCL|OFlag::O_RDWR, //create exclusively (error if collision) and read/write to allow resize
+            Mode::S_IRUSR|Mode::S_IWUSR //Permission allow user+rw
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                match e {
+                    //Generate new unique path
+                    nix::Error::Sys(Errno::EEXIST) => {
+                        if retry == 0 {
+                             orig_path = real_path.clone();
+                        }
+                        real_path = format!("{}_{}", orig_path, retry);
+                        retry += 1;
+
+                        //Make sure we generated a path that isnt too long
+                        let str_len: usize = real_path.len();
+                        if str_len >= max_path_len {
+                            real_path = real_path[str_len-max_path_len..max_path_len].to_string();
+                        }
+                        println!("Unique shared memory name already exists... Trying with \"{}\"", real_path);
+                        continue
+                    },
+                    _ => return Err(From::from(format!("shm_open() failed with :\n{:?}", e))),
+                }
+            },
+        };
+    }
     new_file.real_path = Some(real_path.clone());
 
     //increase size to requested size + meta
