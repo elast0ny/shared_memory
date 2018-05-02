@@ -43,12 +43,12 @@ let mut my_shmem: SharedMem = SharedMem::open(PathBuf::from("shared_mem.link")).
 
 ## Operating System Support
 
-| Feature| Description | Linux | Windows|  Mac<sup>[1]</sup>|
-|--------|-------------|:-----:|:------:|:----:|
-|SharedMem.create/open|Create/open a SharedMem|✔|✔|✔|
-|SharedMem.*_raw|Create/open a raw shared memory map|✔|✔|✔|
-|LockType::Mutex|Mutually exclusive lock|✔|✔</sup>|✔|
-|LockType::RwLock|Exlusive write/shared read|✔|X<sup>[2]</sup>|✔|
+| Feature| Description | Linux | Windows|  Mac<sup>[1]</sup>| FreeBSD |
+|--------|-------------|:-----:|:------:|:----:| :-----: |
+|SharedMem.create/open|Create/open a SharedMem|✔|✔|✔|✔|
+|SharedMem.*_raw|Create/open a raw shared memory map|✔|✔|✔|✔|
+|LockType::Mutex|Mutually exclusive lock|✔|✔</sup>|✔|✔|
+|LockType::RwLock|Exlusive write/shared read|✔|X<sup>[2]</sup>|✔|✔|
 
 <sup>[1] I do not own a Mac so cannot properly test this library other than building against OSX.</sup>
 

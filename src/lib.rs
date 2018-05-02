@@ -39,10 +39,7 @@ cfg_if! {
     if #[cfg(target_os="windows")] {
         mod win;
         use win as os_impl;
-    } else if #[cfg(target_os="linux")] {
-        mod nix;
-        use nix as os_impl;
-    } else if #[cfg(target_os="macos")] {
+    } else if #[cfg(any(target_os="freebsd", target_os="linux", target_os="macos"))] {
         mod nix;
         use nix as os_impl;
     } else {
