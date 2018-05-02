@@ -49,6 +49,7 @@ let mut my_shmem: SharedMem = SharedMem::open(PathBuf::from("shared_mem.link")).
 |SharedMem.*_raw|Create/open a raw shared memory map|✔|✔|✔|✔|
 |LockType::Mutex|Mutually exclusive lock|✔|✔</sup>|✔|✔|
 |LockType::RwLock|Exlusive write/shared read|✔|X<sup>[2]</sup>|✔|✔|
+|Events/Signaling <sup>[#9](https://github.com/elast0ny/shared_memory-rs/issues/9)</sup>|Signal other processes|X|X|X|X|
 
 <sup>[1] I do not own a Mac so cannot properly test this library other than building against OSX.</sup>
 
