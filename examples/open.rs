@@ -28,10 +28,11 @@ fn main() {
     println!("Openned link file \"{}\"
     Backed by OS identifier : \"{}\"
     Size : 0x{:x}",
-    my_shmem.get_link_path().unwrap().to_string_lossy(),
-    my_shmem.get_real_path().unwrap(),
+    my_shmem.get_link_path().to_string_lossy(),
+    my_shmem.get_real_path(),
     my_shmem.get_size());
 
+    /*
     println!("Trying to acquire read lock !");
     //Read the original contents
     {
@@ -73,4 +74,5 @@ fn main() {
         print!("{}", from_ut8f_to_null(&read_buf[4..], 256));
         println!("\"");
     }
+    */
 }

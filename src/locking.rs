@@ -10,23 +10,54 @@ use super::*;
 use std::ops::{Deref, DerefMut};
 use std::os::raw::c_void;
 
-#[derive(Debug)]
+pub struct GenericLock<'a> {
+    /* Fields shared in the memory mapping */
+    pub uid: u8,
+    pub start_ind: usize,
+    pub end_ind: usize,
+
+    /* Our internal fields */
+    pub size: usize,
+    pub ptr: *mut c_void,
+    pub interface: &'a SharedMemLockImpl,
+}
+
+pub struct GenericEvent {
+    /* Fields shared in the memory mapping */
+    pub uid: u8,
+
+    /* Our internal fields */
+    pub size: usize,
+    pub ptr: *mut c_void,
+    //TODO : pub interface: &'a SharedMemEventImpl,
+}
+
+#[derive(Debug,Copy,Clone)]
 ///List of all possible locking mechanisms.
 ///Some OS implementations might not implement all of the possible lock types in this enum.
 pub enum LockType {
-    ///Only one reader or writer can hold this lock at once
-    Mutex,
-    ///Multiple readers can access the data. Writer access is exclusive.
-    RwLock,
-    //BusyWait,
     ///No locking restrictions on the shared memory
-    None,
+    None = 0,
+    ///Only one reader or writer can hold this lock at once
+    Mutex = 1,
+    ///Multiple readers can access the data. Writer access is exclusive.
+    RwLock = 2,
+}
+#[doc(hidden)]
+pub fn lock_uid_to_type(uid: &u8) -> Result<LockType> {
+    match *uid {
+        0 => Ok(LockType::None),
+        1 => Ok(LockType::Mutex),
+        2 => Ok(LockType::RwLock),
+        _ => Err(From::from("Invalid lock uid")),
+    }
 }
 
 #[doc(hidden)]
 pub struct LockNone {}
 impl SharedMemLockImpl for LockNone {
     fn size_of() -> usize {0}
+    fn init(&self, _lock_info: &mut GenericLock, create_new: bool) -> Result<()> {Ok(())}
     fn rlock(&self, _lock_data: *mut c_void) -> Result<()> {Ok(())}
     fn wlock(&self, _lock_data: *mut c_void) -> Result<()> {Ok(())}
     fn runlock(&self, _lock_data: *mut c_void) -> () {}
@@ -37,6 +68,8 @@ impl SharedMemLockImpl for LockNone {
 #[doc(hidden)] pub trait SharedMemLockImpl {
     ///Returns the size of this lock structure that should be allocated in the shared mapping
     fn size_of() -> usize where Self: Sized;
+    ///Initializes the lock
+    fn init(&self, &mut GenericLock, create_new: bool) -> Result<()>;
     ///This method should only return once we have safe read access
     fn rlock(&self, lock_ptr: *mut c_void) -> Result<()>;
     ///This method should only return once we have safe write access
@@ -102,6 +135,7 @@ pub trait SharedMemLockable {
     fn wlock_as_slice<D: SharedMemCast>(&mut self) -> Result<WriteLockGuardSlice<D>>;
 }
 
+/*
 //Implemetation for SharedMem
 impl<'a>SharedMemLockable for SharedMem<'a> {
     fn rlock<D: SharedMemCast>(&self) -> Result<ReadLockGuard<D>> {
@@ -210,7 +244,7 @@ impl<'a>SharedMemLockable for SharedMem<'a> {
         }
     }
 }
-
+*/
 
 /* Lock Guards */
 

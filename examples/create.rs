@@ -10,26 +10,22 @@ struct SharedState {
 unsafe impl SharedMemCast for SharedState {}
 
 fn main() {
-
-    let lock_type = LockType::Mutex;
-
-    //Create a new shared SharedMem
-    let mut my_shmem: SharedMem = match SharedMem::create(PathBuf::from("shared_mem.link"),  lock_type, 4096) {
-        Ok(v) => v,
-        Err(e) => {
-            println!("Error : {}", e);
-            println!("Failed to create SharedMem...");
-            return;
-        }
-    };
+    //Configure our shared memory
+    let my_shmem: SharedMem = SharedMemConf::new(PathBuf::from("shared_mem.link"), 4096)
+        .add_lock(LockType::Mutex, 0, 2048).unwrap()
+        .add_lock(LockType::Mutex, 2048, 4096).unwrap()
+        .create().unwrap();
 
     println!("Created link file \"{}\"
     Backed by OS identifier : \"{}\"
     Size : 0x{:x}",
-    my_shmem.get_link_path().unwrap().to_string_lossy(),
-    my_shmem.get_real_path().unwrap(),
+    my_shmem.get_link_path().to_string_lossy(),
+    my_shmem.get_real_path(),
     my_shmem.get_size());
 
+    std::thread::sleep(std::time::Duration::from_secs(360000));
+    
+    /*
     //Initialize the memory with default values
     {
         let mut shared_state: WriteLockGuard<SharedState> = match my_shmem.wlock() {
@@ -76,4 +72,5 @@ fn main() {
         let src = format!("Goodbye {} listenner(s) !\x00", shared_state.num_listenners);
         shared_state.message[0..src.len()].copy_from_slice(&src.as_bytes());
     }
+    */
 }
