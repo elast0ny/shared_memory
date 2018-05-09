@@ -16,7 +16,7 @@ fn from_ut8f_to_null(bytes: &[u8], max_len: usize) -> &str {
 fn main() {
 
     //Open an existing shared SharedMem
-    let mut my_shmem: SharedMem = match SharedMem::open(PathBuf::from("shared_mem.link")) {
+    let mut my_shmem: SharedMemRaw = match SharedMem::open(PathBuf::from("shared_mem.link")) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);
@@ -32,12 +32,11 @@ fn main() {
     my_shmem.get_real_path(),
     my_shmem.get_size());
 
-    /*
     println!("Trying to acquire read lock !");
     //Read the original contents
     {
         //Acquire read lock
-        let read_buf: ReadLockGuardSlice<u8> = match my_shmem.rlock_as_slice() {
+        let read_buf: ReadLockGuardSlice<u8> = match my_shmem.rlock_as_slice(0) {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire read lock !"),
         };
@@ -55,7 +54,7 @@ fn main() {
     println!("Incrementing shared listenner count !");
     //Update the shared memory
     {
-        let mut num_listenners: WriteLockGuard<u32> = match my_shmem.wlock() {
+        let mut num_listenners: WriteLockGuard<u32> = match my_shmem.wlock(0) {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };
@@ -65,7 +64,7 @@ fn main() {
     //Read the contents of the buffer again
     std::thread::sleep(std::time::Duration::from_secs(1));
     {
-        let read_buf = match my_shmem.rlock_as_slice::<u8>() {
+        let read_buf = match my_shmem.rlock_as_slice::<u8>(0) {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire read lock !"),
         };
@@ -74,5 +73,4 @@ fn main() {
         print!("{}", from_ut8f_to_null(&read_buf[4..], 256));
         println!("\"");
     }
-    */
 }

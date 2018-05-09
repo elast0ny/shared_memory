@@ -34,7 +34,7 @@
 #[macro_use]
 extern crate cfg_if;
 
-//Load up the proper implementations
+//Load up the proper OS implementation
 cfg_if! {
     if #[cfg(target_os="windows")] {
         mod win;
@@ -63,14 +63,15 @@ use std::mem::size_of;
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
 struct MetaDataHeader {
+    meta_size: usize,
     user_size: usize,
     num_locks: usize,
     num_events: usize,
 }
 struct LockHeader {
-    lock_id: u8,
-    start_ind: usize,
-    end_ind: usize,
+    uid: u8,
+    offset: usize,
+    length: usize,
 }
 struct EventHeader {
     event_id: u8,
@@ -81,25 +82,18 @@ pub struct SharedMemConf<'a> {
     owner: bool,
     link_path: PathBuf,
     size: usize,
-    //read_only: bool,
 
+    meta_size: usize,
     lock_data: Vec<GenericLock<'a>>,
     event_data: Vec<GenericEvent>,
-    features_size: usize,
 }
 impl<'a> SharedMemConf<'a> {
 
-    pub fn valid_lock_range(map_size: usize, start_ind: usize, end_ind:usize) -> bool {
-        //Validate indexes
-        if start_ind == end_ind {
-            if start_ind == 0 {
-                return true;
-            } else {
-                return false;
-            }
-        } else if start_ind > end_ind {
+    pub fn valid_lock_range(map_size: usize, offset: usize, length:usize) -> bool {
+
+        if offset == map_size {
             return false;
-        } else if end_ind > map_size {
+        } else if offset + length > map_size {
             return false;
         }
 
@@ -115,14 +109,14 @@ impl<'a> SharedMemConf<'a> {
             //read_only: false,
             lock_data: Vec::with_capacity(2),
             event_data: Vec::with_capacity(2),
-            features_size: size_of::<MetaDataHeader>() + size_of::<LockHeader>() + size_of::<EventHeader>(),
+            meta_size: size_of::<MetaDataHeader>(),
         }
     }
 
     //Adds a lock of specified type on the specified byte indexes to the config
-    pub fn add_lock(mut self, lock_type: LockType, start_ind: usize, end_ind: usize) -> Result<SharedMemConf<'a>> {
+    pub fn add_lock(mut self, lock_type: LockType, offset: usize, length: usize) -> Result<SharedMemConf<'a>> {
 
-        if !SharedMemConf::valid_lock_range(self.size, start_ind, end_ind) {
+        if !SharedMemConf::valid_lock_range(self.size, offset, length) {
             return Err(From::from("Invalid lock range"));
         }
 
@@ -130,15 +124,15 @@ impl<'a> SharedMemConf<'a> {
 
         let new_lock = GenericLock {
             uid: (lock_type as u8),
-            size: os_impl::locktype_size(&lock_type),
-            ptr: null_mut(),
-            start_ind: start_ind,
-            end_ind: end_ind,
+            offset: offset,
+            length: length,
+            lock_ptr: null_mut(),
+            data_ptr: null_mut(),
             interface: os_impl::lockimpl_from_type(&lock_type),
         };
 
-        //Add the size of this lock to of conf in mem size
-        self.features_size += size_of::<LockHeader>() + new_lock.size;
+        //Add the size of this lock to our metadata size
+        self.meta_size += size_of::<LockHeader>() + new_lock.interface.size_of();
 
         //Add this lock to our config
         self.lock_data.push(new_lock);
@@ -149,7 +143,7 @@ impl<'a> SharedMemConf<'a> {
         return &self.size;
     }
     pub fn get_metadata_size(&self) -> &usize {
-        return &self.features_size;
+        return &self.meta_size;
     }
 
     //Creates a shared memory mapping from the config
@@ -167,12 +161,14 @@ impl<'a> SharedMemConf<'a> {
         let some_str: String = String::from("test_mapping");
 
         //Create the file mapping
-        let os_map: os_impl::MapData = os_impl::create_mapping(&some_str, self.features_size + self.size)?;
+        let os_map: os_impl::MapData = os_impl::create_mapping(&some_str, self.meta_size + self.size)?;
 
         let mut cur_ptr = os_map.map_ptr as usize;
+        let user_ptr = os_map.map_ptr as usize + self.meta_size;
 
         //Initialize meta data
         let meta_header: &mut MetaDataHeader = unsafe{&mut (*(cur_ptr as *mut MetaDataHeader))};
+        meta_header.meta_size = self.meta_size;
         meta_header.user_size = self.size;
         meta_header.num_locks = self.lock_data.len();
         meta_header.num_events = self.event_data.len();
@@ -182,13 +178,14 @@ impl<'a> SharedMemConf<'a> {
         for lock in &mut self.lock_data {
             //Set lock header
             let lock_header: &mut LockHeader = unsafe{&mut (*(cur_ptr as *mut LockHeader))};
-            lock_header.lock_id = lock.uid;
-            lock_header.start_ind = lock.start_ind;
-            lock_header.end_ind = lock.end_ind;
+            lock_header.uid = lock.uid;
+            lock_header.offset = lock.offset;
+            lock_header.length = lock.length;
             cur_ptr += size_of::<LockHeader>();
             //Set lock pointer
-            lock.ptr = cur_ptr as *mut c_void;
-            cur_ptr += lock.size;
+            lock.lock_ptr = cur_ptr as *mut c_void;
+            lock.data_ptr = (user_ptr + lock.offset) as *mut c_void;
+            cur_ptr += lock.interface.size_of();
 
             //Initialize the lock
             lock.interface.init(lock, true)?;
@@ -202,9 +199,9 @@ impl<'a> SharedMemConf<'a> {
             cur_ptr += size_of::<EventHeader>();
             //Set lock pointer
             event.ptr = cur_ptr as *mut c_void;
-            cur_ptr += event.size;
 
             //Initialize the event
+            //cur_ptr += event.interface.size_of();
             //TODO : event.interface.init(event)?;
         }
 
@@ -215,11 +212,25 @@ impl<'a> SharedMemConf<'a> {
             Err(_) => return Err(From::from("Failed to write info on disk")),
         };
 
+        println!("Created map with:
+        MetaSize : {}
+        Size : {}
+        Num locks : {}
+        Num Events : {}
+        MetaAddr {:p}
+        UserAddr 0x{:x}",
+            meta_header.meta_size,
+            meta_header.user_size,
+            meta_header.num_locks,
+            meta_header.num_events,
+            os_map.map_ptr,
+            user_ptr,
+        );
+
         Ok(SharedMem {
             conf: self,
             os_data: os_map,
             link_file: cur_link,
-            data_ptr: cur_ptr as *mut c_void,
         })
     }
 }
@@ -232,8 +243,6 @@ pub struct SharedMem<'a> {
     link_file: File,
     //Os specific data for the mapping
     os_data: os_impl::MapData,
-    //Pointer to the usable shared memory
-    data_ptr: *mut c_void,
 }
 impl<'a> Drop for SharedMem<'a> {
 
@@ -254,81 +263,10 @@ impl<'a> Drop for SharedMem<'a> {
 
 impl<'a> SharedMem<'a> {
 
-    /*
-    /// Creates a new SharedMem
-    ///
-    /// This involves creating a "link" on disk specified by the first parameter.
-    /// This link contains the OS specific identifier to the shared memory. The usage of such link files
-    /// on disk help manage identifier colisions. (ie: a binary using the same argument to this function
-    /// can be ran from different directories without worrying about collisions)
-    ///
-    /// # Examples
-    /// ```
-    /// # use shared_memory::*;
-    /// # use std::path::PathBuf;
-    /// # let mut my_shmem: SharedMem = match SharedMem::open(PathBuf::from("shared_mem.link")) {Ok(v) => v, Err(_) => return,};
-    /// //Creates a new shared SharedMem named shared_mem.link of size 4096
-    /// let mut my_shmem: SharedMem = match SharedMem::create(PathBuf::from("shared_mem.link"), LockType::Mutex, 4096) {
-    ///     Ok(v) => v,
-    ///     Err(e) => {
-    ///         println!("Error : {}", e);
-    ///         println!("Failed to create SharedMem...");
-    ///         return;
-    ///     }
-    /// };
-    /// ```
     pub fn create(new_link_path: PathBuf, lock_type: LockType, size: usize) -> Result<SharedMem<'a>> {
-
-        let mut cur_link;
-        if new_link_path.is_file() {
-            return Err(From::from("Cannot create SharedMem because file already exists"));
-        } else {
-            cur_link = File::create(&new_link_path)?;
-        }
-
-        let my_shmem: SharedMem = SharedMem {
-            meta: None,
-            owner: true,
-            link_path: Some(new_link_path),
-            real_path: None,
-            size: size,
-        };
-
-        let created_file = os_impl::create(my_shmem, lock_type)?;
-
-        //Write OS specific identifier in link file
-        if let Some(ref real_path) = created_file.real_path {
-            match cur_link.write(real_path.as_bytes()) {
-                Ok(write_sz) => if write_sz != real_path.as_bytes().len() {
-                    return Err(From::from("Failed to write full contents info on disk"));
-                },
-                Err(_) => return Err(From::from("Failed to write info on disk")),
-            };
-        } else {
-            panic!("os_impl::create() returned succesfully but didnt update SharedMem::real_path() !");
-        }
-
-        Ok(created_file)
+        //Create a simple sharedmemconf with one lock
+        SharedMemConf::new(new_link_path, size).add_lock(lock_type, 0, size).unwrap().create()
     }
-    */
-    ///Opens an existing SharedMem
-    ///
-    /// This function takes a path to a link file created by create().
-    /// Open() will automatically detect the size and locking mechanisms.
-    ///
-    /// # Examples
-    /// ```
-    /// use shared_memory::*;
-    /// //Opens an existing shared SharedMem named test.txt
-    /// let mut my_shmem: SharedMem = match SharedMem::open(PathBuf::from("shared_mem.link")) {
-    ///     Ok(v) => v,
-    ///     Err(e) => {
-    ///         println!("Error : {}", e);
-    ///         println!("Failed to open SharedMem...");
-    ///         return;
-    ///     }
-    /// };
-    /// ```
     pub fn open(existing_link_path: PathBuf) -> Result<SharedMem<'a>> {
 
         // Make sure the link file exists
@@ -345,12 +283,17 @@ impl<'a> SharedMem<'a> {
         //Attempt to open the mapping
         let os_map = os_impl::open_mapping(&real_path)?;
 
+        if size_of::<MetaDataHeader>() > os_map.map_size {
+            return Err(From::from("Mapping is smaller than our metadata header size !"));
+        }
+
         //Initialize meta data
         let mut cur_ptr = os_map.map_ptr as usize;
-        let max_ptr = cur_ptr + os_map.map_size;
 
         //Read header for basic info
         let meta_header: &mut MetaDataHeader = unsafe{&mut (*(cur_ptr as *mut MetaDataHeader))};
+        cur_ptr += size_of::<MetaDataHeader>();
+
         let mut map_conf: SharedMemConf = SharedMemConf {
             owner: false,
             link_path: existing_link_path,
@@ -358,53 +301,72 @@ impl<'a> SharedMem<'a> {
             //read_only: false,
             lock_data: Vec::with_capacity(meta_header.num_locks),
             event_data: Vec::with_capacity(meta_header.num_events),
-            features_size: size_of::<MetaDataHeader>() + size_of::<LockHeader>() + size_of::<EventHeader>()
+            meta_size: meta_header.meta_size,
         };
-        cur_ptr += size_of::<MetaDataHeader>();
 
-        println!("Openned map with:\n\tSize : {}\n\tNum locks : {}\n\tNum Events : {}"
-        , meta_header.user_size, meta_header.num_locks, meta_header.num_events);
-
-        //Basic size check
-        if os_map.map_size < (map_conf.size + map_conf.features_size)  {
+        //Basic size check on (metadata size + userdata size)
+        if os_map.map_size < (map_conf.meta_size + map_conf.size) {
             return Err(From::from(
-                format!("Shared memory header contains an invalid mapping size : (map_size: {}, user_size: {}, meta_size: {})",
+                format!("Shared memory header contains an invalid mapping size : (map_size: {}, meta_size: {}, user_size: {})",
                     os_map.map_size,
                     map_conf.size,
-                    map_conf.features_size)
+                    map_conf.meta_size)
             ));
         }
 
-        for _i in 0..meta_header.num_locks {
-            if cur_ptr >= max_ptr {
-                return Err(From::from("Shared memory metadata is invalid... Not enough space for locks"));
-            }
+        //Add the metadata size to our base pointer to get user addr
+        let user_ptr = os_map.map_ptr as usize + map_conf.meta_size;
+
+        println!("Openned map with:
+        MetaSize : {}
+        Size : {}
+        Num locks : {}
+        Num Events : {}
+        MetaAddr {:p}
+        UserAddr 0x{:x}",
+            meta_header.meta_size,
+            meta_header.user_size,
+            meta_header.num_locks,
+            meta_header.num_events,
+            os_map.map_ptr,
+            user_ptr,
+        );
+
+        for i in 0..meta_header.num_locks {
+
             let lock_header: &mut LockHeader = unsafe{&mut (*(cur_ptr as *mut LockHeader))};
             cur_ptr += size_of::<LockHeader>();
+            //Make sure address is valid before reading lock header
+            if cur_ptr > user_ptr {
+                return Err(From::from("Shared memory metadata is invalid... Not enought space to read lock header fields"));
+            }
 
             //Try to figure out the lock type from the given ID
-            let lock_type: LockType = lock_uid_to_type(&lock_header.lock_id)?;
+            let lock_type: LockType = lock_uid_to_type(&lock_header.uid)?;
 
-            println!("\tFound new lock \"{:?}\" : {}-{}", lock_type, lock_header.start_ind, lock_header.end_ind);
+            println!("\tFound new lock \"{:?}\" : offset {} length {}", lock_type, lock_header.offset, lock_header.length);
 
             //Make sure the lock range makes sense
-            if !SharedMemConf::valid_lock_range(map_conf.size, lock_header.start_ind, lock_header.end_ind) {
+            if !SharedMemConf::valid_lock_range(map_conf.size, lock_header.offset, lock_header.length) {
                 return Err(From::from("Invalid lock range"));
             }
 
             let mut new_lock = GenericLock {
                 uid: lock_type as u8,
-                size: os_impl::locktype_size(&lock_type),
-                ptr: cur_ptr as *mut c_void,
-                start_ind: lock_header.start_ind,
-                end_ind: lock_header.end_ind,
+                lock_ptr: cur_ptr as *mut c_void,
+                data_ptr: (user_ptr + lock_header.offset) as *mut c_void,
+                offset: lock_header.offset,
+                length: lock_header.length,
                 interface: os_impl::lockimpl_from_type(&lock_type),
             };
-            cur_ptr += new_lock.size;
+            cur_ptr += new_lock.interface.size_of();
 
             //Make sure memory is big enough to hold lock data
-            if cur_ptr >= max_ptr {
-                return Err(From::from("Shared memory metadata is invalid... Not enough space for lock data"));
+            if cur_ptr > user_ptr {
+                return Err(From::from(
+                    format!("Shared memory metadata is invalid... Trying to read lock {} of size 0x{:x} at address 0x{:x} but user data starts at 0x{:x}..."
+                        , i, new_lock.interface.size_of(), cur_ptr, user_ptr)
+                ));
             }
 
             //Allow the lock to init itself
@@ -415,7 +377,7 @@ impl<'a> SharedMem<'a> {
         }
 
         for _i in 0..meta_header.num_events {
-            if cur_ptr >= max_ptr {
+            if cur_ptr >= user_ptr {
                 return Err(From::from("Shared memory metadata is invalid... Not enough space for events"));
             }
             let _event_header: &mut EventHeader = unsafe{&mut (*(cur_ptr as *mut EventHeader))};
@@ -424,11 +386,14 @@ impl<'a> SharedMem<'a> {
             //TODO : Init events here
         }
 
+        if cur_ptr != user_ptr {
+            return Err(From::from(format!("Shared memory metadata does not end right before user data ! 0x{:x} != 0x{:x}", cur_ptr, user_ptr)));
+        }
+
         Ok(SharedMem {
             conf: map_conf,
             os_data: os_map,
             link_file: cur_link,
-            data_ptr: cur_ptr as *mut c_void,
         })
     }
 
@@ -446,6 +411,53 @@ impl<'a> SharedMem<'a> {
     ///
     /// On Windows, this returns a namespace
     pub fn get_real_path(&self) -> &String {
+        &self.os_data.unique_id
+    }
+}
+
+pub struct SharedMemRaw<'a> {
+    //Config that describes this mapping
+    conf: SharedMemConf<'a>,
+    //Os specific data for the mapping
+    os_data: os_impl::MapData,
+}
+
+impl<'a> SharedMemRaw<'a> {
+
+    pub fn create(new_link_path: PathBuf, lock_type: LockType, size: usize) -> Result<SharedMem<'a>> {
+        //Create a simple sharedmemconf with one lock
+        SharedMemConf::new(new_link_path, size).add_lock(lock_type, 0, size).unwrap().create()
+    }
+    pub fn open(unique_id: String) -> Result<SharedMemRaw<'a>> {
+
+        //Attempt to open the mapping
+        let os_map = os_impl::open_mapping(&unique_id)?;
+
+        let map_conf: SharedMemConf = SharedMemConf {
+            owner: false,
+            link_path: PathBuf::new(), //No link path for raw shared memory
+            size: os_map.map_size,
+            lock_data: Vec::new(),
+            event_data: Vec::new(),
+            meta_size: 0,
+        };
+
+        Ok(SharedMemRaw {
+            conf: map_conf,
+            os_data: os_map,
+        })
+    }
+
+    ///Returns the size of the SharedMem
+    pub fn get_size(&self) -> &usize {
+        &self.conf.size
+    }
+    ///Returns the OS specific path of the shared memory object
+    ///
+    /// Usualy on Linux, this will point to a file under /dev/shm/
+    ///
+    /// On Windows, this returns a namespace
+    pub fn get_path(&self) -> &String {
         &self.os_data.unique_id
     }
 }

@@ -13,23 +13,11 @@ use std::os::raw::c_void;
 pub struct GenericLock<'a> {
     /* Fields shared in the memory mapping */
     pub uid: u8,
-    pub start_ind: usize,
-    pub end_ind: usize,
-
-    /* Our internal fields */
-    pub size: usize,
-    pub ptr: *mut c_void,
+    pub offset: usize,
+    pub length: usize,
+    pub data_ptr: *mut c_void,
+    pub lock_ptr: *mut c_void,
     pub interface: &'a SharedMemLockImpl,
-}
-
-pub struct GenericEvent {
-    /* Fields shared in the memory mapping */
-    pub uid: u8,
-
-    /* Our internal fields */
-    pub size: usize,
-    pub ptr: *mut c_void,
-    //TODO : pub interface: &'a SharedMemEventImpl,
 }
 
 #[derive(Debug,Copy,Clone)]
@@ -56,18 +44,17 @@ pub fn lock_uid_to_type(uid: &u8) -> Result<LockType> {
 #[doc(hidden)]
 pub struct LockNone {}
 impl SharedMemLockImpl for LockNone {
-    fn size_of() -> usize {0}
-    fn init(&self, _lock_info: &mut GenericLock, create_new: bool) -> Result<()> {Ok(())}
+    fn size_of(&self) -> usize {0}
+    fn init(&self, _lock_info: &mut GenericLock, _create_new: bool) -> Result<()> {Ok(())}
     fn rlock(&self, _lock_data: *mut c_void) -> Result<()> {Ok(())}
     fn wlock(&self, _lock_data: *mut c_void) -> Result<()> {Ok(())}
     fn runlock(&self, _lock_data: *mut c_void) -> () {}
     fn wunlock(&self, _lock_data: *mut c_void) -> () {}
 }
-
-///Trait that all locks need to implement
+///All locks implement this trait
 #[doc(hidden)] pub trait SharedMemLockImpl {
-    ///Returns the size of this lock structure that should be allocated in the shared mapping
-    fn size_of() -> usize where Self: Sized;
+    ///Returns the size of the lock structure that will live in shared memory
+    fn size_of(&self) -> usize;
     ///Initializes the lock
     fn init(&self, &mut GenericLock, create_new: bool) -> Result<()>;
     ///This method should only return once we have safe read access
@@ -80,8 +67,8 @@ impl SharedMemLockImpl for LockNone {
     fn wunlock(&self, lock_ptr: *mut c_void) -> ();
 }
 
-///This trait is implemented by SharedMem
-pub trait SharedMemLockable {
+///Trait that adds rlock/rlock_as_slice functionnalities
+pub trait SharedMemReadLockable {
     ///Returns a read lock to the shared memory
     ///
     /// # Examples
@@ -94,7 +81,7 @@ pub trait SharedMemLockable {
     /// let some_val = my_shmem.rlock::<u8>().unwrap();
     /// println!("I can read a shared u8 ! {}", *some_val);
     /// ```
-    fn rlock<D: SharedMemCast>(&self) -> Result<ReadLockGuard<D>>;
+    fn rlock<D: SharedMemCast>(&self, lock_index: usize) -> Result<ReadLockGuard<D>>;
     ///Returns a read lock to the shared memory as a slice
     ///
     /// # Examples
@@ -107,7 +94,10 @@ pub trait SharedMemLockable {
     /// let read_buf = my_shmem.rlock_as_slice::<u8>().unwrap();
     /// println!("I'm reading into a u8 from a shared &[u8] ! : {}", read_buf[0]);
     /// ```
-    fn rlock_as_slice<D: SharedMemCast>(&self) -> Result<ReadLockGuardSlice<D>>;
+    fn rlock_as_slice<D: SharedMemCast>(&self, lock_index: usize) -> Result<ReadLockGuardSlice<D>>;
+}
+///Trait that adds wlock/wlock_as_slice functionnalities
+pub trait SharedMemWriteLockable {
     ///Returns a read/write lock to the shared memory
     /// # Examples
     ///
@@ -119,7 +109,7 @@ pub trait SharedMemLockable {
     /// let mut some_val = my_shmem.wlock::<u32>().unwrap();
     /// *(*some_val) = 1;
     /// ```
-    fn wlock<D: SharedMemCast>(&mut self) -> Result<WriteLockGuard<D>>;
+    fn wlock<D: SharedMemCast>(&mut self, lock_index: usize) -> Result<WriteLockGuard<D>>;
     ///Returns a read/write access to a &mut [T] on the shared memory
     ///
     /// # Examples
@@ -132,119 +122,117 @@ pub trait SharedMemLockable {
     /// let write_buf = my_shmem.wlock_as_slice::<u8>().unwrap();
     /// write_buf[0] = 0x1;
     /// ```
-    fn wlock_as_slice<D: SharedMemCast>(&mut self) -> Result<WriteLockGuardSlice<D>>;
+    fn wlock_as_slice<D: SharedMemCast>(&mut self, lock_index: usize) -> Result<WriteLockGuardSlice<D>>;
 }
 
-/*
+
 //Implemetation for SharedMem
-impl<'a>SharedMemLockable for SharedMem<'a> {
-    fn rlock<D: SharedMemCast>(&self) -> Result<ReadLockGuard<D>> {
+impl<'a>SharedMemReadLockable for SharedMem<'a> {
+    fn rlock<D: SharedMemCast>(&self, lock_index: usize) -> Result<ReadLockGuard<D>> {
 
-        //Make sure we have a file mapped
-        if let Some(ref meta) = self.meta {
+        let lock: &GenericLock = &self.conf.lock_data[lock_index];
 
-            //Make sure that we can cast our memory to the type
-            let type_size = std::mem::size_of::<D>();
-            if type_size > self.size {
-                return Err(From::from(
-                    format!("Tried to map SharedMem to a too big type {}/{}", type_size, self.size)
-                ));
-            }
+        //Make sure that we can cast our memory to the type
+        let type_size = std::mem::size_of::<D>();
+        if type_size > lock.length {
+            return Err(From::from(
+                format!("Tried to map type of {} bytes to a lock holding only {} bytes", type_size, lock.length)
+            ));
+        }
 
-            //Return data wrapped in a lock
-            Ok(unsafe {
+        //Return data wrapped in a lock
+        Ok(
+            //Unsafe required to cast shared memory to our type
+            unsafe {
                 ReadLockGuard::lock(
-                    &(*(meta.data as *const D)),
-                    meta.lock_impl,
-                    &mut (*meta.lock_data),
+                    &(*(lock.data_ptr as *const D)),
+                    lock.interface,
+                    &mut (*lock.lock_ptr),
                 )
-            })
-
-        } else {
-            return Err(From::from("No file mapped to get lock on"));
-        }
-    }
-    fn rlock_as_slice<D: SharedMemCast>(&self) -> Result<ReadLockGuardSlice<D>> {
-
-        //Make sure we have a file mapped
-        if let Some(ref meta) = self.meta {
-
-            //Make sure that we can cast our memory to the slice
-            let item_size = std::mem::size_of::<D>();
-            if item_size > self.size {
-                return Err(From::from(
-                    format!("Tried to map SharedMem to a too big type {}/{}", item_size, self.size)
-                ));
             }
-            let num_items: usize = self.size / item_size;
+        )
+    }
 
-            //Return data wrapped in a lock
-            Ok(unsafe {
+    fn rlock_as_slice<D: SharedMemCast>(&self, lock_index: usize) -> Result<ReadLockGuardSlice<D>>{
+
+        let lock: &GenericLock = &self.conf.lock_data[lock_index];
+
+        //Make sure that we can cast our memory to the slice
+        let item_size = std::mem::size_of::<D>();
+        if item_size > lock.length {
+            return Err(From::from(
+                format!("Tried to map type of {} bytes to a lock holding only {} bytes", item_size, lock.length)
+            ));
+        }
+        let num_items: usize = lock.length / item_size;
+
+        //Return data wrapped in a lock
+        Ok(
+            //Unsafe required to cast shared memory to array
+            unsafe {
                 ReadLockGuardSlice::lock(
-                    slice::from_raw_parts((meta.data as usize + 0) as *const D, num_items),
-                    meta.lock_impl,
-                    &mut (*meta.lock_data),
+                    slice::from_raw_parts(lock.data_ptr as *const D, num_items),
+                    lock.interface,
+                    &mut (*lock.lock_ptr),
                 )
-            })
-
-        } else {
-            return Err(From::from("No file mapped to get lock on"));
-        }
-    }
-    fn wlock<D: SharedMemCast>(&mut self) -> Result<WriteLockGuard<D>> {
-
-        //Make sure we have a file mapped
-        if let Some(ref mut meta) = self.meta {
-
-            //Make sure that we can cast our memory to the type
-            let type_size = std::mem::size_of::<D>();
-            if type_size > self.size {
-                return Err(From::from(
-                    format!("Tried to map SharedMem to a too big type {}/{}", type_size, self.size)
-                ));
             }
-
-            //Return data wrapped in a lock
-            Ok(unsafe {
-                WriteLockGuard::lock(
-                    &mut (*(meta.data as *mut D)),
-                    meta.lock_impl,
-                    &mut (*meta.lock_data),
-                )
-            })
-
-        } else {
-            return Err(From::from("No file mapped to get lock on"));
-        }
-    }
-    fn wlock_as_slice<D: SharedMemCast>(&mut self) -> Result<WriteLockGuardSlice<D>> {
-
-        //Make sure we have a file mapped
-        if let Some(ref mut meta) = self.meta {
-
-            //Make sure that we can cast our memory to the slice
-            let item_size = std::mem::size_of::<D>();
-            if item_size > self.size {
-                return Err(From::from(
-                    format!("Tried to map SharedMem to a too big type {}/{}", item_size, self.size)
-                ));
-            }
-            let num_items: usize = self.size / item_size;
-
-            //Return data wrapped in a lock
-            Ok(unsafe {
-                WriteLockGuardSlice::lock(
-                    slice::from_raw_parts_mut((meta.data as usize + 0) as *mut D, num_items),
-                    meta.lock_impl,
-                    &mut (*meta.lock_data),
-                )
-            })
-        } else {
-            return Err(From::from("No file mapped to get lock on"));
-        }
+        )
     }
 }
-*/
+
+impl<'a>SharedMemWriteLockable for SharedMem<'a> {
+    fn wlock<D: SharedMemCast>(&mut self, lock_index: usize) -> Result<WriteLockGuard<D>> {
+
+        let lock: &GenericLock = &self.conf.lock_data[lock_index];
+
+        //Make sure that we can cast our memory to the type
+        let type_size = std::mem::size_of::<D>();
+        if type_size > lock.length {
+            return Err(From::from(
+                format!("Tried to map type of {} bytes to a lock holding only {} bytes", type_size, lock.length)
+            ));
+        }
+
+        //Return data wrapped in a lock
+        Ok(
+            //Unsafe required to cast shared memory to our type
+            unsafe {
+                WriteLockGuard::lock(
+                    &mut (*(lock.data_ptr as *mut D)),
+                    lock.interface,
+                    &mut (*lock.lock_ptr),
+                )
+            }
+        )
+    }
+
+    fn wlock_as_slice<D: SharedMemCast>(&mut self, lock_index: usize) -> Result<WriteLockGuardSlice<D>> {
+
+        let lock: &GenericLock = &self.conf.lock_data[lock_index];
+
+        //Make sure that we can cast our memory to the slice
+        let item_size = std::mem::size_of::<D>();
+        if item_size > lock.length {
+            return Err(From::from(
+                format!("Tried to map type of {} bytes to a lock holding only {} bytes", item_size, lock.length)
+            ));
+        }
+        //Calculate how many items our slice will have
+        let num_items: usize = lock.length / item_size;
+
+        //Return data wrapped in a lock
+        Ok(
+            //Unsafe required to cast shared memory to array
+            unsafe {
+                WriteLockGuardSlice::lock(
+                    slice::from_raw_parts_mut((lock.data_ptr as usize + 0) as *mut D, num_items),
+                    lock.interface,
+                    &mut (*lock.lock_ptr),
+                )
+            }
+        )
+    }
+}
 
 /* Lock Guards */
 
@@ -256,14 +244,14 @@ pub struct ReadLockGuard<'a, T: 'a> {
 }
 impl<'a, T:'a> ReadLockGuard<'a, T> {
     #[doc(hidden)]
-    pub fn lock(data_in: &'a T, lock_fn_in: &'a SharedMemLockImpl, lock_data_in: &'a mut c_void) -> ReadLockGuard<'a, T> {
+    pub fn lock(data_ptr: &'a T, interface: &'a SharedMemLockImpl, lock_ptr: &'a mut c_void) -> ReadLockGuard<'a, T> {
         //Acquire the read lock
-        lock_fn_in.rlock(lock_data_in).unwrap();
+        interface.rlock(lock_ptr).unwrap();
 
         ReadLockGuard {
-            data: data_in,
-            lock_fn: lock_fn_in,
-            lock_data: lock_data_in,
+            data: data_ptr,
+            lock_fn: interface,
+            lock_data: lock_ptr,
         }
     }
 }
@@ -314,14 +302,14 @@ pub struct WriteLockGuard<'a, T: 'a> {
 }
 impl<'a, T:'a> WriteLockGuard<'a, T> {
     #[doc(hidden)]
-    pub fn lock(data_in: &'a mut T, lock_fn_in: &'a SharedMemLockImpl, lock_data_in: &'a mut c_void) -> WriteLockGuard<'a, T> {
+    pub fn lock(data_ptr: &'a mut T, interface: &'a SharedMemLockImpl, lock_ptr: &'a mut c_void) -> WriteLockGuard<'a, T> {
         //Acquire the write lock
-        lock_fn_in.wlock(lock_data_in).unwrap();
+        interface.wlock(lock_ptr).unwrap();
 
         WriteLockGuard {
-            data: data_in,
-            lock_fn: lock_fn_in,
-            lock_data: lock_data_in,
+            data: data_ptr,
+            lock_fn: interface,
+            lock_data: lock_ptr,
         }
     }
 }
@@ -348,14 +336,14 @@ pub struct WriteLockGuardSlice<'a, T: 'a> {
 }
 impl<'a, T:'a> WriteLockGuardSlice<'a, T> {
     #[doc(hidden)]
-    pub fn lock(data_in: &'a mut [T], lock_fn_in: &'a SharedMemLockImpl, lock_data_in: &'a mut c_void) -> WriteLockGuardSlice<'a, T> {
+    pub fn lock(data_ptr: &'a mut [T], interface: &'a SharedMemLockImpl, lock_ptr: &'a mut c_void) -> WriteLockGuardSlice<'a, T> {
         //Acquire the write lock
-        lock_fn_in.wlock(lock_data_in).unwrap();
+        interface.wlock(lock_ptr).unwrap();
 
         WriteLockGuardSlice {
-            data: data_in,
-            lock_fn: lock_fn_in,
-            lock_data: lock_data_in,
+            data: data_ptr,
+            lock_fn: interface,
+            lock_data: lock_ptr,
         }
     }
 }

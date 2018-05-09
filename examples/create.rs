@@ -11,9 +11,9 @@ unsafe impl SharedMemCast for SharedState {}
 
 fn main() {
     //Configure our shared memory
-    let my_shmem: SharedMem = SharedMemConf::new(PathBuf::from("shared_mem.link"), 4096)
+    let mut my_shmem: SharedMem = SharedMemConf::new(PathBuf::from("shared_mem.link"), 4096)
         .add_lock(LockType::Mutex, 0, 2048).unwrap()
-        .add_lock(LockType::Mutex, 2048, 4096).unwrap()
+        .add_lock(LockType::Mutex, 2048, 2049).unwrap()
         .create().unwrap();
 
     println!("Created link file \"{}\"
@@ -23,12 +23,9 @@ fn main() {
     my_shmem.get_real_path(),
     my_shmem.get_size());
 
-    std::thread::sleep(std::time::Duration::from_secs(360000));
-    
-    /*
     //Initialize the memory with default values
     {
-        let mut shared_state: WriteLockGuard<SharedState> = match my_shmem.wlock() {
+        let mut shared_state: WriteLockGuard<SharedState> = match my_shmem.wlock(0) {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };
@@ -46,7 +43,7 @@ fn main() {
     loop {
 
         //Acquire read lock
-        let shared_state: ReadLockGuard<SharedState> = match my_shmem.rlock() {
+        let shared_state: ReadLockGuard<SharedState> = match my_shmem.rlock(0) {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire read lock !"),
         };
@@ -64,7 +61,7 @@ fn main() {
 
     //Modify the shared memory just for fun
     {
-        let mut shared_state: WriteLockGuard<SharedState> = match my_shmem.wlock() {
+        let mut shared_state: WriteLockGuard<SharedState> = match my_shmem.wlock(0) {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };
@@ -72,5 +69,4 @@ fn main() {
         let src = format!("Goodbye {} listenner(s) !\x00", shared_state.num_listenners);
         shared_state.message[0..src.len()].copy_from_slice(&src.as_bytes());
     }
-    */
 }
