@@ -89,7 +89,9 @@ struct EventHeader {
     event_id: u8,
 }
 
-//Configuration for a SharedMem
+///Configuration used to describe a shared memory mapping
+///
+///See examples/create_advanced.rs for usage
 pub struct SharedMemConf<'a> {
     owner: bool,
     link_path: Option<PathBuf>,
@@ -103,7 +105,8 @@ pub struct SharedMemConf<'a> {
 }
 impl<'a> SharedMemConf<'a> {
 
-    pub fn valid_lock_range(map_size: usize, offset: usize, length:usize) -> bool {
+    //Validate if a lock range makes sense based on the mapping size
+    fn valid_lock_range(map_size: usize, offset: usize, length:usize) -> bool {
 
         // If lock doesnt protect memory, offset must be 0
         if length == 0 {
@@ -121,7 +124,7 @@ impl<'a> SharedMemConf<'a> {
         return true;
     }
 
-    //Returns an initialized SharedMemConf
+    ///Returns a new SharedMemConf
     pub fn new() -> SharedMemConf<'a> {
         SharedMemConf {
             owner: false,
@@ -136,22 +139,25 @@ impl<'a> SharedMemConf<'a> {
         }
     }
 
+    ///Sets the size of the usable memory in the mapping
     pub fn set_size(mut self, wanted_size: usize) -> SharedMemConf<'a> {
         self.size = wanted_size;
         return self;
     }
 
+    ///Sets the path for the link file
     pub fn set_link(mut self, link_path: &PathBuf) -> SharedMemConf<'a> {
         self.link_path = Some(link_path.clone());
         return self;
     }
 
+    ///Sets a specific unique_id to be used when creating the mapping
     pub fn set_os_path(mut self, unique_id: &str) -> SharedMemConf<'a> {
         self.wanted_os_path = Some(String::from(unique_id));
         return self;
     }
 
-    //Adds a lock of specified type on the specified byte indexes to the config
+    ///Adds a lock of specified type on a range of bytes
     pub fn add_lock(mut self, lock_type: LockType, offset: usize, length: usize) -> Result<SharedMemConf<'a>> {
 
         if !SharedMemConf::valid_lock_range(self.size, offset, length) {
@@ -191,27 +197,34 @@ impl<'a> SharedMemConf<'a> {
 
         Ok(self)
     }
+    ///Returns the size of usable memory in the mapping
     pub fn get_user_size(&self) -> &usize {
         return &self.size;
     }
+    ///Returns the size that the metadata uses in the shared memory mapping
     pub fn get_metadata_size(&self) -> &usize {
         return &self.meta_size;
     }
 
-    //Creates a shared memory mapping from the config
+    ///Creates a shared memory mapping from a config
     pub fn create(mut self) -> Result<SharedMem<'a>> {
 
-        //Create link file asap
+        if self.size == 0 {
+            return Err(From::from("SharedMemConf.create() : Cannot create a mapping of size 0"));
+        }
+
+        //Create link file if required
         let mut cur_link: Option<File> = None;
         if let Some(ref file_path) = self.link_path {
             if file_path.is_file() {
-                return Err(From::from("Cannot create SharedMem because file already exists"));
+                return Err(From::from("SharedMemConf.create() : Link file already exists"));
             } else {
                 cur_link = Some(File::create(file_path)?);
                 self.owner = true;
             }
         }
 
+        //Generate a random unique_id if not specified
         let unique_id: String = match self.wanted_os_path {
             Some(ref s) => s.clone(),
             None => {
@@ -219,10 +232,19 @@ impl<'a> SharedMemConf<'a> {
             },
         };
 
-        println!("Trying to open \"{}\" len {}", unique_id, unique_id.len());
-
         //Create the file mapping
+        //TODO : Handle unique_id collision if randomly generated
         let os_map: os_impl::MapData = os_impl::create_mapping(&unique_id, self.meta_size + self.size)?;
+
+        //Write the unique_id of the mapping in the link file
+        if let Some(ref mut openned_link) =  cur_link {
+            match openned_link.write(unique_id.as_bytes()) {
+                Ok(write_sz) => if write_sz != unique_id.as_bytes().len() {
+                    return Err(From::from("SharedMemConf.create() : Failed to write unique_id to link file"));
+                },
+                Err(_) => return Err(From::from("SharedMemConf.create() : Failed to write unique_id to link file")),
+            };
+        }
 
         let mut cur_ptr = os_map.map_ptr as usize;
         let user_ptr = os_map.map_ptr as usize + self.meta_size;
@@ -264,15 +286,6 @@ impl<'a> SharedMemConf<'a> {
             //Initialize the event
             //cur_ptr += event.interface.size_of();
             //TODO : event.interface.init(event)?;
-        }
-
-        if let Some(ref mut openned_link) =  cur_link {
-            match openned_link.write(unique_id.as_bytes()) {
-                Ok(write_sz) => if write_sz != unique_id.as_bytes().len() {
-                    return Err(From::from("Failed to write full contents info on disk"));
-                },
-                Err(_) => return Err(From::from("Failed to write info on disk")),
-            };
         }
 
         Ok(SharedMem {
