@@ -34,9 +34,8 @@ use self::nix::unistd::{close, ftruncate};
 
 use super::{std,
     LockType,
-    LockNone,
     GenericLock,
-    SharedMemLockImpl,
+    LockImpl,
 };
 
 use std::os::raw::c_void;
@@ -202,9 +201,8 @@ pub fn open_mapping(unique_id: &str) -> Result<MapData> {
 }
 
 //This functions exports our implementation for each lock type
-pub fn lockimpl_from_type(lock_type: &LockType) -> &'static SharedMemLockImpl {
+pub fn lockimpl_from_type(lock_type: &LockType) -> &'static LockImpl {
     match lock_type {
-        &LockType::None => &LockNone{},
         &LockType::Mutex => &Mutex{},
         &LockType::RwLock => &RwLock{},
     }
@@ -213,7 +211,7 @@ pub fn lockimpl_from_type(lock_type: &LockType) -> &'static SharedMemLockImpl {
 /* Lock Implementations */
 //Mutex
 pub struct Mutex {}
-impl SharedMemLockImpl for Mutex {
+impl LockImpl for Mutex {
 
     fn size_of(&self) -> usize {
         size_of::<pthread_mutex_t>()
@@ -260,7 +258,7 @@ impl SharedMemLockImpl for Mutex {
 
 //RwLock
 pub struct RwLock {}
-impl SharedMemLockImpl for RwLock {
+impl LockImpl for RwLock {
 
     fn size_of(&self) -> usize {
         size_of::<pthread_rwlock_t>()

@@ -34,6 +34,12 @@
 #[macro_use]
 extern crate cfg_if;
 
+mod locking;
+mod events;
+
+pub use locking::*;
+pub use events::*;
+
 //Load up the proper OS implementation
 cfg_if! {
     if #[cfg(target_os="windows")] {
@@ -43,13 +49,9 @@ cfg_if! {
         mod nix;
         use nix as os_impl;
     } else {
-        compile_error!("This library isnt implemented for this platform...");
+        compile_error!("shared_memory isnt implemented for this platform...");
     }
 }
-
-//Include definitions from locking.rs
-mod locking;
-pub use locking::*;
 
 use std::path::PathBuf;
 use std::fs::{File};
@@ -59,9 +61,18 @@ use std::slice;
 use std::os::raw::c_void;
 use std::ptr::null_mut;
 use std::mem::size_of;
+use std::sync::atomic::*;
+
+extern crate rand;
+use rand::Rng;
+extern crate theban_interval_tree;
+use theban_interval_tree::*;
+extern crate memrange;
+use memrange::Range;
 
 type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
+//Structs used in the shared memory metadata
 struct MetaDataHeader {
     meta_size: usize,
     user_size: usize,
@@ -77,13 +88,15 @@ struct EventHeader {
     event_id: u8,
 }
 
-//Holds information about the mapping
+//Configuration for a SharedMem
 pub struct SharedMemConf<'a> {
     owner: bool,
-    link_path: PathBuf,
+    link_path: Option<PathBuf>,
+    wanted_os_path: Option<String>,
     size: usize,
 
     meta_size: usize,
+    lock_range_tree: IntervalTree<usize>,
     lock_data: Vec<GenericLock<'a>>,
     event_data: Vec<GenericEvent>,
 }
@@ -91,9 +104,16 @@ impl<'a> SharedMemConf<'a> {
 
     pub fn valid_lock_range(map_size: usize, offset: usize, length:usize) -> bool {
 
-        if offset == map_size {
-            return false;
-        } else if offset + length > map_size {
+        // If lock doesnt protect memory, offset must be 0
+        if length == 0 {
+            if offset != 0  {
+                return false;
+            } else {
+                return true;
+            }
+        }
+
+        if offset + (length - 1) >= map_size {
             return false;
         }
 
@@ -101,26 +121,53 @@ impl<'a> SharedMemConf<'a> {
     }
 
     //Returns an initialized SharedMemConf
-    pub fn new(new_link_path: PathBuf, map_size: usize) -> SharedMemConf<'a> {
+    pub fn new() -> SharedMemConf<'a> {
         SharedMemConf {
             owner: false,
-            link_path: new_link_path,
-            size: map_size,
+            link_path: None,
+            wanted_os_path: None,
+            size: 0,
             //read_only: false,
+            lock_range_tree: IntervalTree::<usize>::new(),
             lock_data: Vec::with_capacity(2),
             event_data: Vec::with_capacity(2),
             meta_size: size_of::<MetaDataHeader>(),
         }
     }
 
+    pub fn set_size(mut self, wanted_size: usize) -> SharedMemConf<'a> {
+        self.size = wanted_size;
+        return self;
+    }
+
+    pub fn set_link(mut self, link_path: &PathBuf) -> SharedMemConf<'a> {
+        self.link_path = Some(link_path.clone());
+        return self;
+    }
+
+    pub fn set_os_path(mut self, unique_id: &str) -> SharedMemConf<'a> {
+        self.wanted_os_path = Some(String::from(unique_id));
+        return self;
+    }
+
     //Adds a lock of specified type on the specified byte indexes to the config
     pub fn add_lock(mut self, lock_type: LockType, offset: usize, length: usize) -> Result<SharedMemConf<'a>> {
 
         if !SharedMemConf::valid_lock_range(self.size, offset, length) {
-            return Err(From::from("Invalid lock range"));
+            return Err(From::from(format!("Invalid lock range: map size 0x{:x}, lock offset 0x{:x}, lock length 0x{:x}", self.size, offset, length)));
         }
 
-        //TODO : Validate that this lock doesnt overlap data covered by another lock ?
+        if length != 0 {
+            let start_offset: u64 = offset as u64;
+            let end_offset: u64 = offset  as u64 + (length - 1) as u64;
+
+            //Make sure this lock doesnt overlap data from another lock
+            if let Some(existing_lock) = self.lock_range_tree.range(start_offset, end_offset).next() {
+                return Err(From::from(format!("Lock #{} already covers this range...", existing_lock.1)));
+            }
+
+            self.lock_range_tree.insert(Range::new(start_offset, end_offset), self.lock_data.len());
+        }
 
         let new_lock = GenericLock {
             uid: (lock_type as u8),
@@ -150,18 +197,27 @@ impl<'a> SharedMemConf<'a> {
     pub fn create(mut self) -> Result<SharedMem<'a>> {
 
         //Create link file asap
-        let mut cur_link: File;
-        if self.link_path.is_file() {
-            return Err(From::from("Cannot create SharedMem because file already exists"));
-        } else {
-            cur_link = File::create(&self.link_path)?;
-            self.owner = true;
+        let mut cur_link: Option<File> = None;
+        if let Some(ref file_path) = self.link_path {
+            if file_path.is_file() {
+                return Err(From::from("Cannot create SharedMem because file already exists"));
+            } else {
+                cur_link = Some(File::create(file_path)?);
+                self.owner = true;
+            }
         }
 
-        let some_str: String = String::from("test_mapping");
+        let unique_id: String = match self.wanted_os_path {
+            Some(ref s) => s.clone(),
+            None => {
+                format!("shmem_rs_{:16X}", rand::thread_rng().gen::<u64>())
+            },
+        };
+
+        println!("Trying to open \"{}\" len {}", unique_id, unique_id.len());
 
         //Create the file mapping
-        let os_map: os_impl::MapData = os_impl::create_mapping(&some_str, self.meta_size + self.size)?;
+        let os_map: os_impl::MapData = os_impl::create_mapping(&unique_id, self.meta_size + self.size)?;
 
         let mut cur_ptr = os_map.map_ptr as usize;
         let user_ptr = os_map.map_ptr as usize + self.meta_size;
@@ -205,12 +261,14 @@ impl<'a> SharedMemConf<'a> {
             //TODO : event.interface.init(event)?;
         }
 
-        match cur_link.write(some_str.as_bytes()) {
-            Ok(write_sz) => if write_sz != some_str.as_bytes().len() {
-                return Err(From::from("Failed to write full contents info on disk"));
-            },
-            Err(_) => return Err(From::from("Failed to write info on disk")),
-        };
+        if let Some(ref mut openned_link) =  cur_link {
+            match openned_link.write(unique_id.as_bytes()) {
+                Ok(write_sz) => if write_sz != unique_id.as_bytes().len() {
+                    return Err(From::from("Failed to write full contents info on disk"));
+                },
+                Err(_) => return Err(From::from("Failed to write info on disk")),
+            };
+        }
 
         println!("Created map with:
         MetaSize : {}
@@ -235,53 +293,27 @@ impl<'a> SharedMemConf<'a> {
     }
 }
 
-///Struct used to manipulate the shared memory
+///Wrapper providing locks/events on a shared memory mapping
 pub struct SharedMem<'a> {
     //Config that describes this mapping
     conf: SharedMemConf<'a>,
     //The currently in use link file
-    link_file: File,
+    link_file: Option<File>,
     //Os specific data for the mapping
     os_data: os_impl::MapData,
 }
-impl<'a> Drop for SharedMem<'a> {
-
-    ///Deletes the SharedMemConf artifacts
-    fn drop(&mut self) {
-
-        //Close the openned link file
-        drop(&self.link_file);
-
-        //Delete link file if we own it
-        if self.conf.owner {
-            if self.conf.link_path.is_file() {
-                match remove_file(&self.conf.link_path) {_=>{},};
-            }
-        }
-    }
-}
-
 impl<'a> SharedMem<'a> {
 
-    pub fn create(new_link_path: PathBuf, lock_type: LockType, size: usize) -> Result<SharedMem<'a>> {
-        //Create a simple sharedmemconf with one lock
-        SharedMemConf::new(new_link_path, size).add_lock(lock_type, 0, size).unwrap().create()
+    pub fn create(lock_type: LockType, size: usize) -> Result<SharedMem<'a>> {
+        //Create from a simple sharedmemconf with one lock
+        SharedMemConf::new()
+            .set_size(size)
+            .add_lock(lock_type, 0, size).unwrap().create()
     }
-    pub fn open(existing_link_path: PathBuf) -> Result<SharedMem<'a>> {
 
-        // Make sure the link file exists
-        if !existing_link_path.is_file() {
-            return Err(From::from("Cannot open SharedMem, link file doesnt exists"));
-        }
-
-        //Get real_path from link file
-        let mut cur_link = File::open(&existing_link_path)?;
-        let mut file_contents: Vec<u8> = Vec::with_capacity(existing_link_path.to_string_lossy().len() + 5);
-        cur_link.read_to_end(&mut file_contents)?;
-        let real_path: String = String::from_utf8(file_contents)?;
-
+    pub fn open(unique_id: &str) -> Result<SharedMem<'a>> {
         //Attempt to open the mapping
-        let os_map = os_impl::open_mapping(&real_path)?;
+        let os_map = os_impl::open_mapping(&unique_id)?;
 
         if size_of::<MetaDataHeader>() > os_map.map_size {
             return Err(From::from("Mapping is smaller than our metadata header size !"));
@@ -296,9 +328,11 @@ impl<'a> SharedMem<'a> {
 
         let mut map_conf: SharedMemConf = SharedMemConf {
             owner: false,
-            link_path: existing_link_path,
+            link_path: None,
+            wanted_os_path: None,
             size: meta_header.user_size,
             //read_only: false,
+            lock_range_tree: IntervalTree::<usize>::new(),
             lock_data: Vec::with_capacity(meta_header.num_locks),
             event_data: Vec::with_capacity(meta_header.num_events),
             meta_size: meta_header.meta_size,
@@ -393,8 +427,37 @@ impl<'a> SharedMem<'a> {
         Ok(SharedMem {
             conf: map_conf,
             os_data: os_map,
-            link_file: cur_link,
+            link_file: None,
         })
+    }
+
+    pub fn create_linked(new_link_path: &PathBuf, lock_type: LockType, size: usize) -> Result<SharedMem<'a>> {
+        //Create from a simple sharedmemconf with one lock
+        SharedMemConf::new()
+            .set_link(new_link_path)
+            .set_size(size)
+            .add_lock(lock_type, 0, size).unwrap().create()
+    }
+    pub fn open_link(existing_link_path: PathBuf) -> Result<SharedMem<'a>> {
+
+        // Make sure the link file exists
+        if !existing_link_path.is_file() {
+            return Err(From::from("Cannot open SharedMem, link file doesnt exists"));
+        }
+
+        //Get real_path from link file
+        let mut cur_link = File::open(&existing_link_path)?;
+        let mut file_contents: Vec<u8> = Vec::with_capacity(existing_link_path.to_string_lossy().len() + 5);
+        cur_link.read_to_end(&mut file_contents)?;
+        let real_path: String = String::from_utf8(file_contents)?;
+
+        let mut new_shmem = SharedMem::open(&real_path)?;
+
+        //Set the link file info
+        new_shmem.conf.link_path = Some(existing_link_path);
+        new_shmem.link_file = Some(cur_link);
+
+        return Ok(new_shmem);
     }
 
     ///Returns the size of the SharedMem
@@ -402,7 +465,7 @@ impl<'a> SharedMem<'a> {
         &self.conf.size
     }
     ///Returns the link_path of the SharedMem
-    pub fn get_link_path(&self) -> &PathBuf {
+    pub fn get_link_path(&self) -> &Option<PathBuf> {
         &self.conf.link_path
     }
     ///Returns the OS specific path of the shared memory object
@@ -414,51 +477,232 @@ impl<'a> SharedMem<'a> {
         &self.os_data.unique_id
     }
 }
+impl<'a> Drop for SharedMem<'a> {
 
-pub struct SharedMemRaw<'a> {
-    //Config that describes this mapping
-    conf: SharedMemConf<'a>,
+    ///Deletes the SharedMemConf artifacts
+    fn drop(&mut self) {
+
+        //Close the openned link file
+        drop(&self.link_file);
+
+        //Delete link file if we own it
+        if self.conf.owner {
+            if let Some(ref file_path) = self.conf.link_path {
+                if file_path.is_file() {
+                    match remove_file(file_path) {_=>{},};
+                }
+            }
+        }
+    }
+}
+impl<'a>ReadLockable for SharedMem<'a> {
+    fn rlock<D: SharedMemCast>(&self, lock_index: usize) -> Result<ReadLockGuard<D>> {
+
+        let lock: &GenericLock = &self.conf.lock_data[lock_index];
+
+        //Make sure that we can cast our memory to the type
+        let type_size = std::mem::size_of::<D>();
+        if type_size > lock.length {
+            return Err(From::from(
+                format!("Tried to map type of {} bytes to a lock holding only {} bytes", type_size, lock.length)
+            ));
+        }
+
+        //Return data wrapped in a lock
+        Ok(
+            //Unsafe required to cast shared memory to our type
+            unsafe {
+                ReadLockGuard::lock(
+                    &(*(lock.data_ptr as *const D)),
+                    lock.interface,
+                    &mut (*lock.lock_ptr),
+                )
+            }
+        )
+    }
+
+    fn rlock_as_slice<D: SharedMemCast>(&self, lock_index: usize) -> Result<ReadLockGuardSlice<D>>{
+
+        let lock: &GenericLock = &self.conf.lock_data[lock_index];
+
+        //Make sure that we can cast our memory to the slice
+        let item_size = std::mem::size_of::<D>();
+        if item_size > lock.length {
+            return Err(From::from(
+                format!("Tried to map type of {} bytes to a lock holding only {} bytes", item_size, lock.length)
+            ));
+        }
+        let num_items: usize = lock.length / item_size;
+
+        //Return data wrapped in a lock
+        Ok(
+            //Unsafe required to cast shared memory to array
+            unsafe {
+                ReadLockGuardSlice::lock(
+                    slice::from_raw_parts(lock.data_ptr as *const D, num_items),
+                    lock.interface,
+                    &mut (*lock.lock_ptr),
+                )
+            }
+        )
+    }
+}
+impl<'a>WriteLockable for SharedMem<'a> {
+    fn wlock<D: SharedMemCast>(&mut self, lock_index: usize) -> Result<WriteLockGuard<D>> {
+
+        let lock: &GenericLock = &self.conf.lock_data[lock_index];
+
+        //Make sure that we can cast our memory to the type
+        let type_size = std::mem::size_of::<D>();
+        if type_size > lock.length {
+            return Err(From::from(
+                format!("Tried to map type of {} bytes to a lock holding only {} bytes", type_size, lock.length)
+            ));
+        }
+
+        //Return data wrapped in a lock
+        Ok(
+            //Unsafe required to cast shared memory to our type
+            unsafe {
+                WriteLockGuard::lock(
+                    &mut (*(lock.data_ptr as *mut D)),
+                    lock.interface,
+                    &mut (*lock.lock_ptr),
+                )
+            }
+        )
+    }
+
+    fn wlock_as_slice<D: SharedMemCast>(&mut self, lock_index: usize) -> Result<WriteLockGuardSlice<D>> {
+
+        let lock: &GenericLock = &self.conf.lock_data[lock_index];
+
+        //Make sure that we can cast our memory to the slice
+        let item_size = std::mem::size_of::<D>();
+        if item_size > lock.length {
+            return Err(From::from(
+                format!("Tried to map type of {} bytes to a lock holding only {} bytes", item_size, lock.length)
+            ));
+        }
+        //Calculate how many items our slice will have
+        let num_items: usize = lock.length / item_size;
+
+        //Return data wrapped in a lock
+        Ok(
+            //Unsafe required to cast shared memory to array
+            unsafe {
+                WriteLockGuardSlice::lock(
+                    slice::from_raw_parts_mut((lock.data_ptr as usize + 0) as *mut D, num_items),
+                    lock.interface,
+                    &mut (*lock.lock_ptr),
+                )
+            }
+        )
+    }
+}
+impl<'a> ReadRaw for SharedMem<'a> {
+    unsafe fn get_raw<D: SharedMemCast>(&self) -> &D {
+        let user_data = self.os_data.map_ptr as usize + self.conf.meta_size;
+        return &(*(user_data as *const D))
+    }
+
+    unsafe fn get_raw_slice<D: SharedMemCast>(&self) -> &[D] {
+        //Make sure that we can cast our memory to the slice
+        let item_size = std::mem::size_of::<D>();
+        if item_size > self.conf.size {
+            panic!("Tried to map type of {} bytes to a lock holding only {} bytes", item_size, self.conf.size);
+        }
+        let num_items: usize = self.conf.size / item_size;
+        let user_data = self.os_data.map_ptr as usize + self.conf.meta_size;
+
+        return slice::from_raw_parts(user_data as *const D, num_items);
+    }
+}
+impl<'a> WriteRaw for SharedMem<'a> {
+    unsafe fn get_raw_mut<D: SharedMemCast>(&mut self) -> &mut D {
+        let user_data = self.os_data.map_ptr as usize + self.conf.meta_size;
+        return &mut (*(user_data as *mut D))
+    }
+    unsafe fn get_raw_slice_mut<D: SharedMemCast>(&mut self) -> &mut[D] {
+        //Make sure that we can cast our memory to the slice
+        let item_size = std::mem::size_of::<D>();
+        if item_size > self.conf.size {
+            panic!("Tried to map type of {} bytes to a lock holding only {} bytes", item_size, self.conf.size);
+        }
+        let num_items: usize = self.conf.size / item_size;
+        let user_data = self.os_data.map_ptr as usize + self.conf.meta_size;
+
+        return slice::from_raw_parts_mut(user_data as *mut D, num_items);
+    }
+}
+
+///Raw shared memory mapping
+pub struct SharedMemRaw {
     //Os specific data for the mapping
     os_data: os_impl::MapData,
 }
+impl SharedMemRaw {
 
-impl<'a> SharedMemRaw<'a> {
+    pub fn create(unique_id: String, size: usize) -> Result<SharedMemRaw> {
 
-    pub fn create(new_link_path: PathBuf, lock_type: LockType, size: usize) -> Result<SharedMem<'a>> {
-        //Create a simple sharedmemconf with one lock
-        SharedMemConf::new(new_link_path, size).add_lock(lock_type, 0, size).unwrap().create()
+        let os_map: os_impl::MapData = os_impl::create_mapping(&unique_id, size)?;
+
+        Ok(SharedMemRaw {
+            os_data: os_map,
+        })
     }
-    pub fn open(unique_id: String) -> Result<SharedMemRaw<'a>> {
+    pub fn open(unique_id: String) -> Result<SharedMemRaw> {
 
         //Attempt to open the mapping
         let os_map = os_impl::open_mapping(&unique_id)?;
 
-        let map_conf: SharedMemConf = SharedMemConf {
-            owner: false,
-            link_path: PathBuf::new(), //No link path for raw shared memory
-            size: os_map.map_size,
-            lock_data: Vec::new(),
-            event_data: Vec::new(),
-            meta_size: 0,
-        };
-
         Ok(SharedMemRaw {
-            conf: map_conf,
             os_data: os_map,
         })
     }
 
-    ///Returns the size of the SharedMem
+    ///Returns the size of the SharedMemRaw mapping
     pub fn get_size(&self) -> &usize {
-        &self.conf.size
+        &self.os_data.map_size
     }
     ///Returns the OS specific path of the shared memory object
     ///
-    /// Usualy on Linux, this will point to a file under /dev/shm/
+    /// Usualy on Linux, this will point to a "file" under /dev/shm/
     ///
     /// On Windows, this returns a namespace
     pub fn get_path(&self) -> &String {
         &self.os_data.unique_id
+    }
+}
+impl ReadRaw for SharedMemRaw {
+    unsafe fn get_raw<D: SharedMemCast>(&self) -> &D {
+        return &(*(self.os_data.map_ptr as *const D))
+    }
+
+    unsafe fn get_raw_slice<D: SharedMemCast>(&self) -> &[D] {
+        //Make sure that we can cast our memory to the slice
+        let item_size = std::mem::size_of::<D>();
+        if item_size > self.os_data.map_size {
+            panic!("Tried to map type of {} bytes to a lock holding only {} bytes", item_size,  self.os_data.map_size);
+        }
+        let num_items: usize =  self.os_data.map_size / item_size;
+
+        return slice::from_raw_parts(self.os_data.map_ptr as *const D, num_items);
+    }
+}
+impl WriteRaw for SharedMemRaw {
+    unsafe fn get_raw_mut<D: SharedMemCast>(&mut self) -> &mut D {
+        return &mut (*(self.os_data.map_ptr as *mut D))
+    }
+    unsafe fn get_raw_slice_mut<D: SharedMemCast>(&mut self) -> &mut[D] {
+        //Make sure that we can cast our memory to the slice
+        let item_size = std::mem::size_of::<D>();
+        if item_size >  self.os_data.map_size {
+            panic!("Tried to map type of {} bytes to a lock holding only {} bytes", item_size,  self.os_data.map_size);
+        }
+        let num_items: usize =  self.os_data.map_size / item_size;
+
+        return slice::from_raw_parts_mut(self.os_data.map_ptr as *mut D, num_items);
     }
 }
 
@@ -518,3 +762,8 @@ unsafe impl SharedMemCast for u32 {}
 unsafe impl SharedMemCast for usize {}
 unsafe impl SharedMemCast for f32 {}
 unsafe impl SharedMemCast for f64 {}
+
+unsafe impl SharedMemCast for AtomicBool {}
+unsafe impl SharedMemCast for AtomicIsize {}
+unsafe impl<T> SharedMemCast for AtomicPtr<T> {}
+unsafe impl SharedMemCast for AtomicUsize {}

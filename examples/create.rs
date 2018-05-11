@@ -2,34 +2,40 @@ extern crate shared_memory;
 use shared_memory::*;
 use std::path::PathBuf;
 
-struct SharedState {
+struct SomeState {
     num_listenners: u32,
     message: [u8; 256],
 }
 //WARNING : Only do this if you know what you're doing.
-unsafe impl SharedMemCast for SharedState {}
+unsafe impl SharedMemCast for SomeState {}
 
 fn main() {
-    //Configure our shared memory
-    let mut my_shmem: SharedMem = SharedMemConf::new(PathBuf::from("shared_mem.link"), 4096)
-        .add_lock(LockType::Mutex, 0, 2048).unwrap()
-        .add_lock(LockType::Mutex, 2048, 2049).unwrap()
-        .create().unwrap();
+
+    //Create a simple shared memory mapping with 1 lock
+    let mut my_shmem: SharedMem = match SharedMem::create_linked(&PathBuf::from("shared_mem.link"), LockType::Mutex, 4096) {
+        Ok(m) => m,
+        Err(e) => {
+            println!("Error : {}", e);
+            println!("Failed to create SharedMem !");
+            return;
+        }
+    };
 
     println!("Created link file \"{}\"
     Backed by OS identifier : \"{}\"
     Size : 0x{:x}",
-    my_shmem.get_link_path().to_string_lossy(),
+    my_shmem.get_link_path().as_ref().unwrap().to_string_lossy(),
     my_shmem.get_real_path(),
     my_shmem.get_size());
 
-    //Initialize the memory with default values
     {
-        let mut shared_state: WriteLockGuard<SharedState> = match my_shmem.wlock(0) {
+        //Cast our shared memory as a mutable SomeState struct
+        let mut shared_state: WriteLockGuard<SomeState> = match my_shmem.wlock(0) {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };
 
+        //Initialize the memory with default values
         shared_state.num_listenners = 0;
         let src = b"Welcome, we currently have 0 listenners !\x00";
         shared_state.message[0..src.len()].copy_from_slice(src);
@@ -37,13 +43,13 @@ fn main() {
         println!("Holding lock for 5 seconds !");
         std::thread::sleep(std::time::Duration::from_secs(5));
     }
-    println!("Waiting for a listenner to connect !");
 
+    println!("Waiting for a listenner to connect !");
     //Loop until our memory has changed
     loop {
 
         //Acquire read lock
-        let shared_state: ReadLockGuard<SharedState> = match my_shmem.rlock(0) {
+        let shared_state: ReadLockGuard<SomeState> = match my_shmem.rlock(0) {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire read lock !"),
         };
@@ -61,7 +67,7 @@ fn main() {
 
     //Modify the shared memory just for fun
     {
-        let mut shared_state: WriteLockGuard<SharedState> = match my_shmem.wlock(0) {
+        let mut shared_state: WriteLockGuard<SomeState> = match my_shmem.wlock(0) {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };

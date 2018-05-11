@@ -1,15 +1,16 @@
 extern crate shared_memory;
-use shared_memory::*;
-use std::path::PathBuf;
+use shared_memory::{
+    SharedMemRaw,
+    ReadRaw,
+};
+use std::sync::atomic::*;
 
-//This example demonstrates how to use the *_raw() APIs.
-//
-//These APIs are only useful if you wish to use shared memory that isnt managed by my_shmem.
+//This example demonstrates how one can create a raw memory mapping with no bells and whistles
 
 fn main() {
 
     //Create a new raw shared mapping
-    let my_shmem: SharedMemRaw = match SharedMem::create_raw(String::from("some_raw_map"), 4096) {
+    let my_shmem: SharedMemRaw = match SharedMemRaw::create(String::from("some_raw_map"), 4096) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);
@@ -19,22 +20,18 @@ fn main() {
     };
 
     //Display some info
-    println!("Created link file \"{}\"
-    Backed by OS identifier : \"{}\"
+    println!("Created raw map @ \"{}\"
     Size : 0x{:x}",
-    my_shmem.get_link_path().unwrap_or(&PathBuf::from("[NONE]")).to_string_lossy(),
-    my_shmem.get_real_path().unwrap(),
+    my_shmem.get_path(),
     my_shmem.get_size());
 
     println!("Busy looping until first byte changes...");
-    {
-        //This uses a LockType::None which makes "locking" a no-op
-        let first_byte: ReadLockGuard<u8> = my_shmem.rlock().unwrap();
 
-        //We never need to release the "lock" since there is no lock
-        while *first_byte == &0 {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-        }
+    //On most architectures, reading a byte is always atomic but oh well
+    let first_byte: &AtomicBool = unsafe { my_shmem.get_raw() };
+
+    while !first_byte.load(Ordering::Relaxed) {
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
     println!("Done !");

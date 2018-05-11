@@ -19,6 +19,9 @@ exclude = [
 
 [dependencies]
 cfg-if = "0.1"
+theban_interval_tree = "0.7"
+memrange = "0.1"
+rand = "0.4"
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.10"

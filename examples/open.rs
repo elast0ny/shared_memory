@@ -16,7 +16,7 @@ fn from_ut8f_to_null(bytes: &[u8], max_len: usize) -> &str {
 fn main() {
 
     //Open an existing shared SharedMem
-    let mut my_shmem: SharedMemRaw = match SharedMem::open(PathBuf::from("shared_mem.link")) {
+    let mut my_shmem: SharedMem = match SharedMem::open_link(PathBuf::from("shared_mem.link")) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);
@@ -28,7 +28,7 @@ fn main() {
     println!("Openned link file \"{}\"
     Backed by OS identifier : \"{}\"
     Size : 0x{:x}",
-    my_shmem.get_link_path().to_string_lossy(),
+    my_shmem.get_link_path().as_ref().unwrap().to_string_lossy(),
     my_shmem.get_real_path(),
     my_shmem.get_size());
 
