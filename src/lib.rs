@@ -155,7 +155,9 @@ impl<'a> SharedMemConf<'a> {
     pub fn add_lock(mut self, lock_type: LockType, offset: usize, length: usize) -> Result<SharedMemConf<'a>> {
 
         if !SharedMemConf::valid_lock_range(self.size, offset, length) {
-            return Err(From::from(format!("Invalid lock range: map size 0x{:x}, lock offset 0x{:x}, lock length 0x{:x}", self.size, offset, length)));
+            return Err(From::from(format!(
+                "add_lock({:?}, {}, {}) : Invalid lock range for map size {}",
+                lock_type, offset, length, self.size)));
         }
 
         if length != 0 {
@@ -164,7 +166,9 @@ impl<'a> SharedMemConf<'a> {
 
             //Make sure this lock doesnt overlap data from another lock
             if let Some(existing_lock) = self.lock_range_tree.range(start_offset, end_offset).next() {
-                return Err(From::from(format!("Lock #{} already covers this range...", existing_lock.1)));
+                return Err(From::from(format!(
+                    "add_lock({:?}, {}, {}) : Lock #{} already covers this range...",
+                    lock_type, offset, length, existing_lock.1)));
             }
 
             self.lock_range_tree.insert(Range::new(start_offset, end_offset), self.lock_data.len());
