@@ -335,36 +335,21 @@ impl<'a> SharedMem<'a> {
             lock_range_tree: IntervalTree::<usize>::new(),
             lock_data: Vec::with_capacity(meta_header.num_locks),
             event_data: Vec::with_capacity(meta_header.num_events),
-            meta_size: meta_header.meta_size,
+            meta_size: size_of::<MetaDataHeader>(),
         };
 
         //Basic size check on (metadata size + userdata size)
-        if os_map.map_size < (map_conf.meta_size + map_conf.size) {
+        if os_map.map_size < (meta_header.meta_size + meta_header.user_size) {
             return Err(From::from(
                 format!("Shared memory header contains an invalid mapping size : (map_size: {}, meta_size: {}, user_size: {})",
                     os_map.map_size,
-                    map_conf.size,
-                    map_conf.meta_size)
+                    meta_header.user_size,
+                    meta_header.meta_size)
             ));
         }
 
         //Add the metadata size to our base pointer to get user addr
-        let user_ptr = os_map.map_ptr as usize + map_conf.meta_size;
-
-        println!("Openned map with:
-        MetaSize : {}
-        Size : {}
-        Num locks : {}
-        Num Events : {}
-        MetaAddr {:p}
-        UserAddr 0x{:x}",
-            meta_header.meta_size,
-            meta_header.user_size,
-            meta_header.num_locks,
-            meta_header.num_events,
-            os_map.map_ptr,
-            user_ptr,
-        );
+        let user_ptr = os_map.map_ptr as usize + meta_header.meta_size;
 
         for i in 0..meta_header.num_locks {
 
@@ -380,21 +365,17 @@ impl<'a> SharedMem<'a> {
 
             println!("\tFound new lock \"{:?}\" : offset {} length {}", lock_type, lock_header.offset, lock_header.length);
 
-            //Make sure the lock range makes sense
-            if !SharedMemConf::valid_lock_range(map_conf.size, lock_header.offset, lock_header.length) {
-                return Err(From::from("Invalid lock range"));
-            }
+            //Add new lock to our config
+            map_conf = map_conf.add_lock(lock_type, lock_header.offset, lock_header.length)?;
 
-            let mut new_lock = GenericLock {
-                uid: lock_type as u8,
-                lock_ptr: cur_ptr as *mut c_void,
-                data_ptr: (user_ptr + lock_header.offset) as *mut c_void,
-                offset: lock_header.offset,
-                length: lock_header.length,
-                interface: os_impl::lockimpl_from_type(&lock_type),
-            };
+            let new_lock: &mut GenericLock = map_conf.lock_data.last_mut().unwrap();
+
+            new_lock.lock_ptr = cur_ptr as *mut c_void;
+            new_lock.data_ptr = (user_ptr + lock_header.offset) as *mut c_void;
+            //Allow the lock to init itself as an existing lock
+            new_lock.interface.init(new_lock, false)?;
+
             cur_ptr += new_lock.interface.size_of();
-
             //Make sure memory is big enough to hold lock data
             if cur_ptr > user_ptr {
                 return Err(From::from(
@@ -403,11 +384,6 @@ impl<'a> SharedMem<'a> {
                 ));
             }
 
-            //Allow the lock to init itself
-            new_lock.interface.init(&mut new_lock, false)?;
-
-            //Save this lock in our conf
-            map_conf.lock_data.push(new_lock);
         }
 
         for _i in 0..meta_header.num_events {
@@ -422,6 +398,8 @@ impl<'a> SharedMem<'a> {
 
         if cur_ptr != user_ptr {
             return Err(From::from(format!("Shared memory metadata does not end right before user data ! 0x{:x} != 0x{:x}", cur_ptr, user_ptr)));
+        } else if map_conf.meta_size != meta_header.meta_size {
+            return Err(From::from(format!("Shared memory metadata does not match what was advertised ! 0x{:x} != 0x{:x}", map_conf.meta_size, meta_header.meta_size)));
         }
 
         Ok(SharedMem {
