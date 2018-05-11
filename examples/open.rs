@@ -25,12 +25,7 @@ fn main() {
         }
     };
 
-    println!("Openned link file \"{}\"
-    Backed by OS identifier : \"{}\"
-    Size : 0x{:x}",
-    my_shmem.get_link_path().as_ref().unwrap().to_string_lossy(),
-    my_shmem.get_real_path(),
-    my_shmem.get_size());
+    println!("Openned link file with info : {}", my_shmem);
 
     println!("Trying to acquire read lock !");
     //Read the original contents

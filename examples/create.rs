@@ -21,12 +21,7 @@ fn main() {
         }
     };
 
-    println!("Created link file \"{}\"
-    Backed by OS identifier : \"{}\"
-    Size : 0x{:x}",
-    my_shmem.get_link_path().as_ref().unwrap().to_string_lossy(),
-    my_shmem.get_real_path(),
-    my_shmem.get_size());
+    println!("Created link file with info : {}", my_shmem);
 
     {
         //Cast our shared memory as a mutable SomeState struct

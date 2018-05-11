@@ -62,6 +62,7 @@ use std::os::raw::c_void;
 use std::ptr::null_mut;
 use std::mem::size_of;
 use std::sync::atomic::*;
+use std::fmt;
 
 extern crate rand;
 use rand::Rng;
@@ -270,21 +271,6 @@ impl<'a> SharedMemConf<'a> {
             };
         }
 
-        println!("Created map with:
-        MetaSize : {}
-        Size : {}
-        Num locks : {}
-        Num Events : {}
-        MetaAddr {:p}
-        UserAddr 0x{:x}",
-            meta_header.meta_size,
-            meta_header.user_size,
-            meta_header.num_locks,
-            meta_header.num_events,
-            os_map.map_ptr,
-            user_ptr,
-        );
-
         Ok(SharedMem {
             conf: self,
             os_data: os_map,
@@ -471,6 +457,29 @@ impl<'a> Drop for SharedMem<'a> {
                 }
             }
         }
+    }
+}
+impl<'a> fmt::Display for SharedMem<'a> {
+
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "
+        Created : {}
+        link : \"{}\"
+        os_id : \"{}\"
+        MetaSize : {}
+        Size : {}
+        Num locks : {}
+        Num Events : {}
+        StartAddr {:p}",
+            self.conf.owner,
+            self.conf.link_path.as_ref().unwrap_or(&PathBuf::from("[NONE]")).to_string_lossy(),
+            self.os_data.unique_id,
+            self.conf.meta_size,
+            self.conf.size,
+            self.conf.lock_data.len(),
+            self.conf.event_data.len(),
+            self.os_data.map_ptr,
+        )
     }
 }
 impl<'a>ReadLockable for SharedMem<'a> {
