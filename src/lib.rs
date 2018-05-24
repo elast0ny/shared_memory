@@ -93,7 +93,6 @@ struct EventHeader {
 
 ///Configuration used to describe a shared memory mapping before its creation
 pub struct SharedMemConf<'a> {
-    is_live: bool,
     owner: bool,
     link_path: Option<PathBuf>,
     wanted_os_path: Option<String>,
@@ -124,36 +123,7 @@ impl<'a> SharedMemConf<'a> {
 
         return true;
     }
-    ///Returns a new SharedMemConf
-    pub fn new() -> SharedMemConf<'a> {
-        SharedMemConf {
-            is_live: false,
-            owner: false,
-            link_path: None,
-            wanted_os_path: None,
-            size: 0,
-            //read_only: false,
-            lock_range_tree: IntervalTree::<usize>::new(),
-            lock_data: Vec::with_capacity(2),
-            event_data: Vec::with_capacity(2),
-            meta_size: size_of::<MetaDataHeader>(),
-        }
-    }
-    ///Sets the size of the usable memory in the mapping
-    pub fn set_size(mut self, wanted_size: usize) -> SharedMemConf<'a> {
-        self.size = wanted_size;
-        return self;
-    }
-    ///Sets the path for the link file
-    pub fn set_link_path(mut self, link_path: &PathBuf) -> SharedMemConf<'a> {
-        self.link_path = Some(link_path.clone());
-        return self;
-    }
-    ///Sets a specific unique_id to be used when creating the mapping
-    pub fn set_os_path(mut self, unique_id: &str) -> SharedMemConf<'a> {
-        self.wanted_os_path = Some(String::from(unique_id));
-        return self;
-    }
+    //Adds a lock to our config
     fn add_lock_impl(&mut self, lock_type: LockType, offset: usize, length: usize) -> Result<()> {
         if !SharedMemConf::valid_lock_range(self.size, offset, length) {
             return Err(From::from(format!(
@@ -192,11 +162,7 @@ impl<'a> SharedMemConf<'a> {
 
         Ok(())
     }
-    ///Adds a lock of specified type on a range of bytes
-    pub fn add_lock(mut self, lock_type: LockType, offset: usize, length: usize) -> Result<SharedMemConf<'a>> {
-        self.add_lock_impl(lock_type, offset, length)?;
-        Ok(self)
-    }
+    //Adds an event to our config
     fn add_event_impl(&mut self, event_type: EventType) -> Result<()> {
         let new_event = GenericEvent {
             uid: (event_type as u8),
@@ -212,18 +178,8 @@ impl<'a> SharedMemConf<'a> {
 
         Ok(())
     }
-    ///Adds an event of specified type
-    pub fn add_event(mut self, event_type: EventType) -> Result<SharedMemConf<'a>> {
-        self.add_event_impl(event_type)?;
-        Ok(self)
-    }
-    ///Calculates the meta data size required given the current config
-    pub fn get_metadata_size(&self) -> usize {
-
-        //This is static if the memory has been created
-        if self.is_live {
-            return self.meta_size;
-        }
+    //Calculates the meta data size required given the current config
+    pub fn calculate_metadata_size(&self) -> usize {
 
         let mut meta_size = size_of::<MetaDataHeader>();
 
@@ -249,7 +205,47 @@ impl<'a> SharedMemConf<'a> {
         align_value(&mut meta_size, ADDR_ALIGN);
         meta_size
     }
-    ///Creates a shared memory mapping from a config
+
+    ///Returns a new SharedMemConf
+    pub fn new() -> SharedMemConf<'a> {
+        SharedMemConf {
+            owner: false,
+            link_path: None,
+            wanted_os_path: None,
+            size: 0,
+            //read_only: false,
+            lock_range_tree: IntervalTree::<usize>::new(),
+            lock_data: Vec::with_capacity(2),
+            event_data: Vec::with_capacity(2),
+            meta_size: size_of::<MetaDataHeader>(),
+        }
+    }
+    ///Sets the size of the usable memory in the mapping
+    pub fn set_size(mut self, wanted_size: usize) -> SharedMemConf<'a> {
+        self.size = wanted_size;
+        return self;
+    }
+    ///Sets the path for the link file
+    pub fn set_link_path(mut self, link_path: &PathBuf) -> SharedMemConf<'a> {
+        self.link_path = Some(link_path.clone());
+        return self;
+    }
+    ///Sets a specific unique_id to be used when creating the mapping
+    pub fn set_os_path(mut self, unique_id: &str) -> SharedMemConf<'a> {
+        self.wanted_os_path = Some(String::from(unique_id));
+        return self;
+    }
+    ///Adds a lock of specified type on a range of bytes
+    pub fn add_lock(mut self, lock_type: LockType, offset: usize, length: usize) -> Result<SharedMemConf<'a>> {
+        self.add_lock_impl(lock_type, offset, length)?;
+        Ok(self)
+    }
+    ///Adds an event of specified type
+    pub fn add_event(mut self, event_type: EventType) -> Result<SharedMemConf<'a>> {
+        self.add_event_impl(event_type)?;
+        Ok(self)
+    }
+    ///Creates a shared memory mapping from the current config values
     pub fn create(mut self) -> Result<SharedMem<'a>> {
 
         if self.size == 0 {
@@ -275,7 +271,7 @@ impl<'a> SharedMemConf<'a> {
             },
         };
 
-        let meta_size: usize = self.get_metadata_size();
+        let meta_size: usize = self.calculate_metadata_size();
         //Create the file mapping
         //TODO : Handle unique_id collision if randomly generated
         let os_map: os_impl::MapData = os_impl::create_mapping(&unique_id, meta_size + self.size)?;
@@ -341,7 +337,6 @@ impl<'a> SharedMemConf<'a> {
         align_value(&mut cur_ptr, ADDR_ALIGN);
 
         self.meta_size = meta_size;
-        self.is_live = true;
 
         Ok(SharedMem {
             conf: self,
@@ -350,7 +345,7 @@ impl<'a> SharedMemConf<'a> {
             link_file: cur_link,
         })
     }
-
+    ///Opens a shared memory mapping frmo the current config values
     pub fn open(mut self) -> Result<SharedMem<'a>> {
 
         //Attempt to open the mapping
@@ -503,8 +498,6 @@ impl<'a> SharedMemConf<'a> {
             return Err(From::from(format!("Shared memory metadata does not match what was advertised ! {} != {}", self.meta_size, meta_header.meta_size)));
         }
 
-        self.is_live = true;
-
         //Return SharedMem
         Ok(SharedMem {
             conf: self,
@@ -558,7 +551,7 @@ impl<'a> SharedMem<'a> {
         self.conf.size
     }
     pub fn get_metadata_size(&self) -> usize {
-        self.conf.get_metadata_size()
+        self.conf.meta_size
     }
     pub fn num_locks(&self) -> usize {
         self.conf.lock_data.len()
