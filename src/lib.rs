@@ -1,35 +1,4 @@
 //! A user friendly crate that allows you to share memory between __processes__
-//!
-//! ## Examples
-//! Creator based on examples/create.rs
-//! ```
-//! //Create a SharedMem at `pwd`\shared_mem.link that links to a shared memory mapping of size 4096 and managed by a mutex.
-//! let mut my_shmem: SharedMem = match SharedMem::create(PathBuf::from("shared_mem.link") LockType::Mutex, 4096).unwrap();
-//! //Set explicit scope for the lock (no need to call drop(shared_data))
-//! {
-//!     //Acquire write lock
-//!     let mut shared_data = match my_shmem.wlock_as_slice::<u8>().unwrap();
-//!     let src = b"Some string you want to share\x00";
-//!     //Write to the shared memory
-//!     shared_data[0..src.len()].copy_from_slice(src);
-//! }
-//! ```
-//!
-//! Slave based on examples/open.rs
-//! ```
-// Open an existing SharedMem from `pwd`\shared_mem.link
-//! let mut my_shmem: SharedMem = match SharedMem::open(PathBuf::from("shared_mem.link")).unwrap();
-//! //Set explicit scope for the lock (no need to call drop(shared_data))
-//! {
-//!     //Acquire read lock
-//!     let mut shared_data = match my_shmem.rlock_as_slice::<u8>().unwrap();
-//!     //Print the content of the shared memory as chars
-//!     for byte in &shared_data[0..256] {
-//!         if *byte == 0 { break; }
-//!         print!("{}", *byte as char);
-//!     }
-//! }
-//! ```
 
 #[macro_use]
 extern crate cfg_if;
