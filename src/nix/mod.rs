@@ -56,8 +56,6 @@ use self::nix::fcntl::OFlag;
 use self::nix::unistd::{close, ftruncate};
 
 use super::{std,
-    AtomicBool,
-    Ordering,
     LockType,
     GenericLock,
     LockImpl,
@@ -68,6 +66,7 @@ use super::{std,
     GenericEvent,
 };
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::os::raw::c_void;
 use std::os::unix::io::RawFd;
 use std::ptr::{null_mut};
