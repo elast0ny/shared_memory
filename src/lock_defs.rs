@@ -55,57 +55,22 @@ pub trait LockImpl {
 pub trait ReadLockable {
     ///Returns a read lock to the shared memory
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use shared_memory::*;
-    /// # use std::path::PathBuf;
-    /// # let mut my_shmem: SharedMem = match SharedMem::open(PathBuf::from("shared_mem.link")) {Ok(v) => v, Err(_) => return,};
-    /// //let some_val: ReadLockGuard<u8> = my_shmem.rlock().unwrap();
-    /// let some_val = my_shmem.rlock::<u8>().unwrap();
-    /// println!("I can read a shared u8 ! {}", *some_val);
-    /// ```
+    ///The caller must ensure that the index given to this function is valid
     fn rlock<D: SharedMemCast>(&self, lock_index: usize) -> Result<ReadLockGuard<D>>;
     ///Returns a read lock to the shared memory as a slice
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use shared_memory::*;
-    /// # use std::path::PathBuf;
-    /// # let mut my_shmem: SharedMem = match SharedMem::open(PathBuf::from("shared_mem.link")) {Ok(v) => v, Err(_) => return,};
-    /// //let read_buf: ReadLockGuardSlice<u8> = my_shmem.rlock_as_slice().unwrap();
-    /// let read_buf = my_shmem.rlock_as_slice::<u8>().unwrap();
-    /// println!("I'm reading into a u8 from a shared &[u8] ! : {}", read_buf[0]);
-    /// ```
+    ///The caller must ensure that the index given to this function is valid
     fn rlock_as_slice<D: SharedMemCast>(&self, lock_index: usize) -> Result<ReadLockGuardSlice<D>>;
 }
 ///Trait that adds wlock/wlock_as_slice functionnalities
 pub trait WriteLockable {
     ///Returns a read/write lock to the shared memory
-    /// # Examples
     ///
-    /// ```
-    /// # use shared_memory::*;
-    /// # use std::path::PathBuf;
-    /// # let mut my_shmem: SharedMem = match SharedMem::open(PathBuf::from("shared_mem.link")) {Ok(v) => v, Err(_) => return,};
-    /// //let mut some_val: WriteLockGuard<u32> = my_shmem.wlock().unwrap();
-    /// let mut some_val = my_shmem.wlock::<u32>().unwrap();
-    /// *(*some_val) = 1;
-    /// ```
+    ///The caller must ensure that the index given to this function is valid
     fn wlock<D: SharedMemCast>(&mut self, lock_index: usize) -> Result<WriteLockGuard<D>>;
     ///Returns a read/write access to a &mut [T] on the shared memory
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use shared_memory::*;
-    /// # use std::path::PathBuf;
-    /// # let mut my_shmem: SharedMem = match SharedMem::open(PathBuf::from("shared_mem.link")) {Ok(v) => v, Err(_) => return,};
-    /// //let write_buf: WriteLockGuardSlice<u8> = my_shmem.wlock_as_slice().unwrap();
-    /// let write_buf = my_shmem.wlock_as_slice::<u8>().unwrap();
-    /// write_buf[0] = 0x1;
-    /// ```
+    ///The caller must ensure that the index given to this function is valid
     fn wlock_as_slice<D: SharedMemCast>(&mut self, lock_index: usize) -> Result<WriteLockGuardSlice<D>>;
 }
 ///Trait that adds raw unsafe pointer access
