@@ -128,7 +128,7 @@ impl<'a> SharedMemConf<'a> {
         Ok(())
     }
     //Calculates the meta data size required given the current config
-    pub fn calculate_metadata_size(&self) -> usize {
+    fn calculate_metadata_size(&self) -> usize {
 
         let mut meta_size = size_of::<MetaDataHeader>();
 
@@ -485,13 +485,18 @@ impl<'a> SharedMemConf<'a> {
         self.meta_size
     }
     #[inline]
+    ///Returns the current number of locks
     pub fn num_locks(&self) -> usize {
         self.lock_data.len()
     }
+
     #[inline]
+    ///Returns the current number of events
     pub fn num_events(&self) -> usize {
         self.event_data.len()
     }
+
+    #[doc(hidden)]
     #[inline]
     pub fn is_owner(&self) -> bool {
         self.owner

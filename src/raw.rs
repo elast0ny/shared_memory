@@ -11,6 +11,7 @@ pub struct SharedMemRaw {
 }
 impl SharedMemRaw {
 
+    ///Creates a raw mapping
     pub fn create(unique_id: String, size: usize) -> Result<SharedMemRaw> {
 
         let os_map: os_impl::MapData = os_impl::create_mapping(&unique_id, size)?;
@@ -19,6 +20,7 @@ impl SharedMemRaw {
             os_data: os_map,
         })
     }
+    ///Opens a raw mapping
     pub fn open(unique_id: String) -> Result<SharedMemRaw> {
 
         //Attempt to open the mapping
@@ -28,30 +30,30 @@ impl SharedMemRaw {
             os_data: os_map,
         })
     }
-
-    ///Returns the size of the SharedMemRaw mapping
+    #[inline]
+    ///Returns the size of the raw mapping
     pub fn get_size(&self) -> &usize {
         &self.os_data.map_size
     }
-    ///Returns the OS specific path of the shared memory object
-    ///
-    /// Usualy on Linux, this will point to a "file" under /dev/shm/
-    ///
-    /// On Windows, this returns a namespace
+    #[inline]
+    ///Returns the OS specific path of the raw mapping
     pub fn get_path(&self) -> &String {
         &self.os_data.unique_id
     }
-
+    #[inline]
+    ///Returns a void pointer to the first address of the mapping
     pub fn get_ptr(&self) -> *mut c_void {
-        return self.os_data.map_ptr;
+        self.os_data.map_ptr
     }
 }
 
 impl ReadRaw for SharedMemRaw {
+    ///Returns a read only reference to D casted onto the shared memory
     unsafe fn get_raw<D: SharedMemCast>(&self) -> &D {
         return &(*(self.os_data.map_ptr as *const D))
     }
 
+    ///Returns a read only reference to a slice of D casted onto the shared memory
     unsafe fn get_raw_slice<D: SharedMemCast>(&self) -> &[D] {
         //Make sure that we can cast our memory to the slice
         let item_size = std::mem::size_of::<D>();
@@ -64,9 +66,11 @@ impl ReadRaw for SharedMemRaw {
     }
 }
 impl WriteRaw for SharedMemRaw {
+    ///Returns a mutable reference to D casted onto the shared memory
     unsafe fn get_raw_mut<D: SharedMemCast>(&mut self) -> &mut D {
         return &mut (*(self.os_data.map_ptr as *mut D))
     }
+    ///Returns a mutable reference to a slice of D casted onto the shared memory
     unsafe fn get_raw_slice_mut<D: SharedMemCast>(&mut self) -> &mut[D] {
         //Make sure that we can cast our memory to the slice
         let item_size = std::mem::size_of::<D>();
