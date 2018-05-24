@@ -2,10 +2,8 @@
 
 #[macro_use]
 extern crate cfg_if;
-
 #[macro_use]
 extern crate enum_primitive;
-pub use enum_primitive::FromPrimitive;
 
 use std::path::PathBuf;
 use std::fs::{File};
@@ -68,7 +66,7 @@ pub use conf::*;
 mod raw;
 pub use raw::*;
 
-///Wrapper providing locks/events on a shared memory mapping
+///Default shared mapping structure
 pub struct SharedMem<'a> {
     //Config that describes this mapping
     conf: SharedMemConf<'a>,

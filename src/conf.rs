@@ -6,6 +6,7 @@ extern crate memrange;
 use self::memrange::Range;
 
 use super::*;
+use enum_primitive::FromPrimitive;
 
 use std::io::{Write, Read};
 use std::ptr::null_mut;
@@ -40,7 +41,7 @@ struct EventHeader {
     uid: u8,
 }
 
-///Configuration used to describe a shared memory mapping before its creation
+///Configuration used to describe a shared memory mapping before openning/creation
 pub struct SharedMemConf<'a> {
     owner: bool,
     link_path: Option<PathBuf>,

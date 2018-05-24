@@ -12,22 +12,22 @@ impl<'a> Drop for GenericEvent<'a> {
     }
 }
 
-///States that events can be set to
+///Possible states for an event
 pub enum EventState {
-    ///An event set to WAIT will cause subsequent wait() calls to block
+    ///An event set to "Wait" will cause subsequent wait() calls to block
     ///
-    ///This is mostly usefull for Manual* events.
+    ///This is mostly usefull for manual events as auto events automatically reset to "Wait".
     Wait,
-    ///An event set to SIGNALED will unblock blocked wait() calls.
+    ///An event set to "Signaled" will unblock threads who are blocks on wait() calls.
     ///
     ///If this is an Auto lock, only one waiting thread will be unblocked as
-    ///the state will be automatically set to WAIT after the unblock.
+    ///the state will be automatically set to WAIT after the first threads wakes up.
     Signaled,
 }
 
 enum_from_primitive! {
     #[derive(Debug,Copy,Clone)]
-    ///Different types of events one can add to a SharedMemConf
+    ///List of available signaling mechanisms on your platform.
     pub enum EventType {
         ///Busy event that automatically resets after a wait
         AutoBusy = 0,
@@ -61,12 +61,18 @@ pub trait EventImpl {
     fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()>;
 }
 
-///Structs implementing this trait allows users to signal events
+///Provides the ability to set an event to a state
 pub trait EventSet {
+    ///Set an event to a specific state
+    ///
+    ///The caller must validate event_index before calling this method
     fn set(&mut self, event_index: usize, state: EventState) -> Result<()>;
 }
 
-///Structs implementing this trait allows users to wait on events
+///Provides the ability to wait on an event
 pub trait EventWait {
+    ///Wait for an event to become signaled or until timeout is reached
+    ///
+    ///The caller must validate event_index before calling this method
     fn wait(&self, event_index: usize, timeout: Timeout) -> Result<()>;
 }

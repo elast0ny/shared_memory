@@ -23,7 +23,7 @@ pub struct GenericLock<'a> {
 
 enum_from_primitive! {
     #[derive(Debug,Copy,Clone)]
-    ///List of all possible locking mechanisms.
+    ///List of available locking mechanisms on your platform.
     pub enum LockType {
         ///Only one reader or writer can hold this lock at once
         Mutex = 0,
@@ -32,7 +32,6 @@ enum_from_primitive! {
     }
 }
 
-///All locks implement this trait
 #[doc(hidden)]
 pub trait LockImpl {
     ///Returns the size of the lock structure that will live in shared memory
@@ -51,7 +50,7 @@ pub trait LockImpl {
     fn wunlock(&self, lock_ptr: *mut c_void) -> ();
 }
 
-///Trait that adds rlock/rlock_as_slice functionnalities
+///Provides rlock/rlock_as_slice functionnalities
 pub trait ReadLockable {
     ///Returns a read lock to the shared memory
     ///
@@ -62,7 +61,7 @@ pub trait ReadLockable {
     ///The caller must ensure that the index given to this function is valid
     fn rlock_as_slice<D: SharedMemCast>(&self, lock_index: usize) -> Result<ReadLockGuardSlice<D>>;
 }
-///Trait that adds wlock/wlock_as_slice functionnalities
+///Provides wlock/wlock_as_slice functionnalities
 pub trait WriteLockable {
     ///Returns a read/write lock to the shared memory
     ///
@@ -73,13 +72,13 @@ pub trait WriteLockable {
     ///The caller must ensure that the index given to this function is valid
     fn wlock_as_slice<D: SharedMemCast>(&mut self, lock_index: usize) -> Result<WriteLockGuardSlice<D>>;
 }
-///Trait that adds raw unsafe pointer access
+///Provides raw unsafe pointer access
 pub trait ReadRaw {
     unsafe fn get_raw<D: SharedMemCast>(&self) -> &D;
     unsafe fn get_raw_slice<D: SharedMemCast>(&self) -> &[D];
 }
 
-///Trait that adds raw unsafe pointer access
+///Provides raw unsafe pointer access
 pub trait WriteRaw {
     unsafe fn get_raw_mut<D: SharedMemCast>(&mut self) -> &mut D;
     unsafe fn get_raw_slice_mut<D: SharedMemCast>(&mut self) -> &mut [D];
@@ -87,7 +86,7 @@ pub trait WriteRaw {
 
 /* Lock Guards */
 
-///Lock wrappping a non-mutable access to the shared data
+///RAII structure used to release the read access of a lock when dropped.
 pub struct ReadLockGuard<'a, T: 'a> {
     data: &'a T,
     lock_fn: &'a LockImpl,
@@ -116,7 +115,7 @@ impl<'a, T> Deref for ReadLockGuard<'a, T> {
     fn deref(&self) -> &Self::Target { &self.data }
 }
 
-///Lock wrappping a non-mutable access to the shared data as a slice
+///RAII structure used to release the read access of a lock when dropped.
 pub struct ReadLockGuardSlice<'a, T: 'a> {
     data: &'a [T],
     lock_fn: &'a LockImpl,
@@ -145,7 +144,7 @@ impl<'a, T> Deref for ReadLockGuardSlice<'a, T> {
     fn deref(&self) -> &Self::Target { &self.data }
 }
 
-///Lock wrappping a mutable access to the shared data
+///RAII structure used to release the write access of a lock when dropped.
 pub struct WriteLockGuard<'a, T: 'a> {
     data: &'a mut T,
     lock_fn: &'a LockImpl,
@@ -179,7 +178,7 @@ impl<'a, T> DerefMut for WriteLockGuard<'a, T> {
     }
 }
 
-///Lock wrappping a mutable access to the shared data as a slice
+///RAII structure used to release the write access of a lock when dropped.
 pub struct WriteLockGuardSlice<'a, T: 'a> {
     data: &'a mut [T],
     lock_fn: &'a LockImpl,
