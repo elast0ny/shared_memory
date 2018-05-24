@@ -23,7 +23,7 @@ fn ind(ev_type: MyEvents) -> usize {
 fn main() {
 
     //Open an existing shared SharedMem
-    let mut my_shmem = match SharedMem::open_link(PathBuf::from("shared_mem.link")) {
+    let mut my_shmem = match SharedMem::open_linked(PathBuf::from("shared_mem.link")) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);

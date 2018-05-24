@@ -25,7 +25,7 @@ fn main() -> Result<()> {
 
     //Create a custom configuration for our mapping
     let mut my_conf = SharedMemConf::new()
-        .set_link(&PathBuf::from("shared_mem.link"))
+        .set_link_path(&PathBuf::from("shared_mem.link"))
         .set_os_path("test_mapping")
         .set_size(4096);
     //Add our events
