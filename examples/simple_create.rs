@@ -9,24 +9,23 @@ struct SomeState {
 //WARNING : Only do this if you know what you're doing.
 unsafe impl SharedMemCast for SomeState {}
 
-fn main() -> Result<(), Box<std::error::Error>> {
+fn main() {
 
-    //Create a custom configuration for our mapping
-    let my_conf = SharedMemConf::new()
-        .set_link(&PathBuf::from("shared_mem.link"))
-        .set_os_path("test_mapping")
-        .set_size(4096)
-        .add_lock(LockType::Mutex, 0, 2048)?
-        .add_lock(LockType::Mutex, 2047, 2048)?;
-
-    //Create mapping based of our config
-    let mut my_shmem = my_conf.create()?;
+    //Create a simple shared memory mapping with 1 lock controlling the whole mapping
+    let mut my_shmem = match SharedMem::create_linked(&PathBuf::from("shared_mem.link"), LockType::Mutex, 4096) {
+        Ok(m) => m,
+        Err(e) => {
+            println!("Error : {}", e);
+            println!("Failed to create SharedMem !");
+            return;
+        }
+    };
 
     println!("Created link file with info : {}", my_shmem);
 
     {
         //Cast our shared memory as a mutable SomeState struct
-        let mut shared_state: WriteLockGuard<SomeState> = match my_shmem.wlock(0) {
+        let mut shared_state = match my_shmem.wlock::<SomeState>(0) {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };
@@ -45,7 +44,7 @@ fn main() -> Result<(), Box<std::error::Error>> {
     loop {
 
         //Acquire read lock
-        let shared_state: ReadLockGuard<SomeState> = match my_shmem.rlock(0) {
+        let shared_state = match my_shmem.rlock::<SomeState>(0) {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire read lock !"),
         };
@@ -63,7 +62,7 @@ fn main() -> Result<(), Box<std::error::Error>> {
 
     //Modify the shared memory just for fun
     {
-        let mut shared_state: WriteLockGuard<SomeState> = match my_shmem.wlock(0) {
+        let mut shared_state = match my_shmem.wlock::<SomeState>(0) {
             Ok(v) => v,
             Err(_) => panic!("Failed to acquire write lock !"),
         };
@@ -71,5 +70,4 @@ fn main() -> Result<(), Box<std::error::Error>> {
         let src = format!("Goodbye {} listenner(s) !\x00", shared_state.num_listenners);
         shared_state.message[0..src.len()].copy_from_slice(&src.as_bytes());
     }
-    Ok(())
 }

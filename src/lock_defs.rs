@@ -10,6 +10,7 @@ use super::*;
 use std::ops::{Deref, DerefMut};
 use std::os::raw::c_void;
 
+#[doc(hidden)]
 pub struct GenericLock<'a> {
     /* Fields shared in the memory mapping */
     pub uid: u8,
@@ -20,30 +21,26 @@ pub struct GenericLock<'a> {
     pub interface: &'a LockImpl,
 }
 
-#[derive(Debug,Copy,Clone)]
-///List of all possible locking mechanisms.
-///Some OS implementations might not implement all of the possible lock types in this enum.
-pub enum LockType {
-    ///Only one reader or writer can hold this lock at once
-    Mutex = 0,
-    ///Multiple readers can access the data. Writer access is exclusive.
-    RwLock = 1,
-}
-#[doc(hidden)]
-pub fn lock_uid_to_type(uid: &u8) -> Result<LockType> {
-    match *uid {
-        0 => Ok(LockType::Mutex),
-        1 => Ok(LockType::RwLock),
-        _ => Err(From::from("Invalid lock uid")),
+enum_from_primitive! {
+    #[derive(Debug,Copy,Clone)]
+    ///List of all possible locking mechanisms.
+    pub enum LockType {
+        ///Only one reader or writer can hold this lock at once
+        Mutex = 0,
+        ///Multiple readers can access the data. Writer access is exclusive.
+        RwLock,
     }
 }
 
 ///All locks implement this trait
-#[doc(hidden)] pub trait LockImpl {
+#[doc(hidden)]
+pub trait LockImpl {
     ///Returns the size of the lock structure that will live in shared memory
     fn size_of(&self) -> usize;
     ///Initializes the lock
     fn init(&self, &mut GenericLock, create_new: bool) -> Result<()>;
+    ///De-initializes the lock
+    fn destroy(&self, lock_info: &mut GenericLock);
     ///This method should only return once we have safe read access
     fn rlock(&self, lock_ptr: *mut c_void) -> Result<()>;
     ///This method should only return once we have safe write access
