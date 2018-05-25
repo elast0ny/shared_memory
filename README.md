@@ -27,7 +27,7 @@ For usage examples, see code located in [examples/](examples/) :
 |LockType::RwLock|Exlusive write/shared read|✔|X<sup>[2]</sup>|✔|✔|
 |EventType::Auto/Manual| Generic event : [pthread_cond](https://linux.die.net/man/3/pthread_cond_init) on unix and [Event Objects](https://msdn.microsoft.com/en-us/library/windows/desktop/ms682655.aspx) on windows. |✔|✔|✔|✔
 |EventType::*Busy|Busy event managed by polling an AtomicBool in a loop|✔|✔|✔|✔|
-|EventType::*EventFd|Linux specific event type|✔|N/A|N/A|N/A|
+|EventType::*EventFd|[Linux specific event type](http://man7.org/linux/man-pages/man2/eventfd.2.html)|✔|N/A|N/A|N/A|
 
 <sup>\*Events take the Auto or Manual prefix to indicate wether signals are automatical "consumed" by waiting threads or not.</sup>
 
