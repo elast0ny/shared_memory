@@ -9,49 +9,27 @@ A user friendly crate that allows you to share memory between __processes__.
 
 ## Usage
 
-Writer based on [examples/create.rs](examples/create.rs)
-``` rust
-//Creates a new SharedMem link "shared_mem.link" that points to shared memory of size 4096
-let mut my_shmem: SharedMem = SharedMem::create(
-  PathBuf::from("shared_mem.link"),
-  LockType::Mutex, //Concurent accesses will be managed by a mutex
-  4096
-).unwrap();
+For usage examples, see code located in [examples/](examples/) :
 
-//Acquire write lock
-{
-    let mut shared_data: WriteLockGuardSlice<u8> = my_shmem.wlock_as_slice().unwrap();
-    let src = b"Hello World !\x00";
-    shared_data[0..src.len()].copy_from_slice(src);
-}
-```
+  | Examples | Description |
+  |----------|-------------|
+  |simple_[[create](examples/simple_create.rs)&#124;[open](examples/simple_open.rs)]|Basic use of the library when all you need is memory protected by one lock|
+  |events_[[create](examples/events_create.rs)&#124;[open](examples/events_open.rs)] | Shows the more advanced usage of the crate with configs and events |
+  |raw_[[create](examples/raw_create.rs)&#124;[open](examples/raw_create.rs)]| Create/Open raw mappings that are not managed by this crate |
 
-Reader based on [examples/open.rs](examples/open.rs)
-``` rust
-// Open an existing SharedMem link named "shared_mem.link"
-let mut my_shmem: SharedMem = SharedMem::open(PathBuf::from("shared_mem.link")).unwrap();
-//Aquire Read lock
-{
-   let mut shared_data = my_shmem.rlock_as_slice::<u8>().unwrap();
-   //Print the content of the shared memory as chars
-   for byte in &shared_data[0..256] {
-       if *byte == 0 { break; }
-       print!("{}", *byte as char);
-   }
-}
-```
-
-## Operating System Support
+## Feature Support
 
 | Feature| Description | Linux | Windows|  Mac<sup>[1]</sup>| FreeBSD |
 |--------|-------------|:-----:|:------:|:----:| :-----: |
-|SharedMem.create/open|Create/open a SharedMem|✔|✔|✔|✔|
-|SharedMem.*_raw|Create/open a raw shared memory map|✔|✔|✔|✔|
 |LockType::Mutex|Mutually exclusive lock|✔|✔</sup>|✔|✔|
 |LockType::RwLock|Exlusive write/shared read|✔|X<sup>[2]</sup>|✔|✔|
-|Events/Signaling <sup>[#9](https://github.com/elast0ny/shared_memory-rs/issues/9)</sup>|Signal other processes|X|X|X|X|
+|EventType::Auto/Manual| Generic event : [pthread_cond](https://linux.die.net/man/3/pthread_cond_init) on unix and [Event Objects](https://msdn.microsoft.com/en-us/library/windows/desktop/ms682655.aspx) on windows. |✔|✔|✔|✔
+|EventType::*Busy|Busy event managed by polling an AtomicBool in a loop|✔|✔|✔|✔|
+|EventType::*EventFd|Linux specific event type|✔|N/A|N/A|N/A|
 
-<sup>[1] I do not own a Mac so cannot properly test this library other than building against OSX.</sup>
+<sup>\*Events take the Auto or Manual prefix to indicate wether signals are automatical "consumed" by waiting threads or not.</sup>
+
+<sup>[1] I do not own a Mac so cannot easily test this library other than building against OSX.</sup>
 
 <sup>[2] Windows provides no default implementation of Rwlock that is safe to share between processes. See [Issue #1](https://github.com/elast0ny/shared_memory-rs/issues/1)</sup>
 
