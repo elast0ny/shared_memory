@@ -7,7 +7,7 @@
 
 A user friendly crate that allows you to share memory between __processes__.
 
-This crate aims to provide lightweight wrappers around shared memory mappings in an OS agnostic way while also providing an abstraction layer on comonly used [synchronization primitives](#feature_support).
+This crate aims to provide lightweight wrappers around shared memory mappings in an OS agnostic way while also providing an abstraction layer on comonly used [synchronization primitives](#Synchronization-Primitives).
 
 ## Usage
 
@@ -19,7 +19,7 @@ For usage examples, see code located in [examples/](examples/) :
   |events_[[create](examples/events_create.rs)&#124;[open](examples/events_open.rs)] | Shows the more advanced usage of the crate with configs and events |
   |raw_[[create](examples/raw_create.rs)&#124;[open](examples/raw_create.rs)]| Create/Open raw mappings that are not managed by this crate |
 
-## Feature Support
+## Synchronization Primitives
 
 | Feature| Description | Linux | Windows|  Mac<sup>[1]</sup>| FreeBSD |
 |--------|-------------|:-----:|:------:|:----:| :-----: |
