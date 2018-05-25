@@ -7,6 +7,8 @@
 
 A user friendly crate that allows you to share memory between __processes__.
 
+This crate aims to provide lightweight wrappers around shared memory mappings in an OS agnostic way while also providing an abstraction layer on comonly used [synchronization primitives](#feature_support).
+
 ## Usage
 
 For usage examples, see code located in [examples/](examples/) :
