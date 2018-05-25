@@ -15,7 +15,6 @@ enum_from_primitive! {
 }
 
 #[inline]
-//Converts enum to usize index
 fn ind(ev_type: MyEvents) -> usize {
     ev_type as usize
 }
@@ -32,11 +31,12 @@ fn main() {
         }
     };
 
-    //Add our events
+    //Count how many variants are in our MyEvents enum
     let mut expected_num_events: usize = 0;
     while let Some(_v) = MyEvents::from_usize(expected_num_events) {
         expected_num_events += 1;
     }
+    //Make sure mapping contains all of our events
     if expected_num_events != my_shmem.num_events() {
         println!("We expected {} events but {} are in the shared memory...", expected_num_events, my_shmem.num_events());
         return;
@@ -44,6 +44,7 @@ fn main() {
 
     println!("Openned link file with info : {}", my_shmem);
 
+    //Simulate some signaling
     println!("Signaling peer...");
     match my_shmem.set(ind(MyEvents::MyEvt), EventState::Signaled) {_=>{},};
 

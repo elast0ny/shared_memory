@@ -51,6 +51,7 @@ fn main() {
     }
 
     println!("Incrementing shared listenner count !");
+
     //Update the shared memory
     {
         let mut num_listenners = match my_shmem.wlock::<u32>(0) {

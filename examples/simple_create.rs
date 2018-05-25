@@ -40,6 +40,7 @@ fn main() {
     }
 
     println!("Waiting for a listenner to connect !");
+
     //Loop until our memory has changed
     loop {
 

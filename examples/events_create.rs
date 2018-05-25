@@ -28,17 +28,21 @@ fn main() -> Result<()> {
         .set_link_path(&PathBuf::from("shared_mem.link"))
         .set_os_path("test_mapping")
         .set_size(4096);
-    //Add our events
+
+    //Add an event for every variation of our MyEvents enum
     let mut i: u8 = 0;
     while let Some(_v) = MyEvents::from_u8(i) {
         my_conf = my_conf.add_event(EventType::AutoBusy)?;
         i += 1;
     }
+
     //Create mapping based on our config
     let mut my_shmem = my_conf.create()?;
 
     println!("Created link file with info : {}", my_shmem);
 
+
+    //Simulate some signaling
     println!("Waiting for peer to signal for 5s");
     match my_shmem.wait(ind(MyEvents::PeerEvt), Timeout::Sec(5)) {
         Ok(()) => println!("\tGot signal !"),
