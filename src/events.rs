@@ -25,26 +25,45 @@ pub enum EventState {
     Signaled,
 }
 
-enum_from_primitive! {
-    #[derive(Debug,Copy,Clone)]
-    ///List of available signaling mechanisms on your platform.
-    pub enum EventType {
-        ///Busy event that automatically resets after a wait
-        AutoBusy = 0,
-        ///Busy event that needs to be reset manually
-        ManualBusy,
-        ///Generic event that automatically resets after a wait
-        Auto,
-        ///Generic event that needs to be reset manually
-        Manual,
-        #[cfg(target_os="linux")]
-        ///Linux eventfd event that automatically resets after a wait
-        AutoEventFd,
-        #[cfg(target_os="linux")]
-        ///Linux eventfd event that needs to be reset manually
-        ManualEventFd,
+//TODO : This is super ugly
+cfg_if! {
+    if #[cfg(target_os="linux")] {
+        enum_from_primitive! {
+            #[derive(Debug,Copy,Clone)]
+            ///List of available signaling mechanisms on your platform.
+            pub enum EventType {
+                ///Busy event that automatically resets after a wait
+                AutoBusy = 0,
+                ///Busy event that needs to be reset manually
+                ManualBusy,
+                ///Generic event that automatically resets after a wait
+                Auto,
+                ///Generic event that needs to be reset manually
+                Manual,
+                ///Linux eventfd event that automatically resets after a wait
+                AutoEventFd,
+                ///Linux eventfd event that needs to be reset manually
+                ManualEventFd,
+            }
+        }
+    } else {
+        enum_from_primitive! {
+            #[derive(Debug,Copy,Clone)]
+            ///List of available signaling mechanisms on your platform.
+            pub enum EventType {
+                ///Busy event that automatically resets after a wait
+                AutoBusy = 0,
+                ///Busy event that needs to be reset manually
+                ManualBusy,
+                ///Generic event that automatically resets after a wait
+                Auto,
+                ///Generic event that needs to be reset manually
+                Manual,
+            }
+        }
     }
 }
+
 
 ///All events implement this trait
 #[doc(hidden)]

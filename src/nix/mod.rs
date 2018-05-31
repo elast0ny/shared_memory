@@ -64,6 +64,7 @@ use super::{std,
     EventState,
     Timeout,
     GenericEvent,
+    Result,
 };
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -72,8 +73,6 @@ use std::os::unix::io::RawFd;
 use std::ptr::{null_mut};
 use std::mem::size_of;
 use std::time::{Duration, Instant};
-
-type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
 /*
 #[cfg(target_os="macos")]

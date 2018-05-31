@@ -37,7 +37,7 @@ pub trait LockImpl {
     ///Returns the size of the lock structure that will live in shared memory
     fn size_of(&self) -> usize;
     ///Initializes the lock
-    fn init(&self, &mut GenericLock, create_new: bool) -> Result<()>;
+    fn init(&self, lock_info: &mut GenericLock, create_new: bool) -> Result<()>;
     ///De-initializes the lock
     fn destroy(&self, lock_info: &mut GenericLock);
     ///This method should only return once we have safe read access
