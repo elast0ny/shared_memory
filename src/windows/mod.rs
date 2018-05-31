@@ -73,12 +73,114 @@ impl Drop for MapData {
 
 //Creates a mapping specified by the uid and size
 pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData> {
-    Err(From::from("A"))
+
+    let mut new_map: MapData = MapData {
+        unique_id: String::from(unique_id),
+        map_handle: NULL,
+        map_size: map_size,
+        map_ptr: null_mut(),
+    };
+
+    //Create Mapping
+    new_map.map_handle = unsafe {
+        let high_size: u32 = (map_size as u64 & 0xFFFFFFFF00000000 as u64) as u32;
+        let low_size: u32 = (map_size as u64 & 0xFFFFFFFF as u64) as u32;
+        CreateFileMappingA(
+            INVALID_HANDLE_VALUE,
+            null_mut(),
+            PAGE_READWRITE,
+            high_size,
+            low_size,
+            CString::new(unique_id)?.as_ptr())
+    };
+    let last_error = unsafe{GetLastError()};
+
+    if new_map.map_handle == NULL {
+        return Err(From::from(format!("CreateFileMappingA failed with {}", last_error)));
+    } else if last_error == ERROR_ALREADY_EXISTS {
+        return Err(From::from("NAME_EXISTS"));
+    }
+
+    //Map mapping into address space
+    new_map.map_ptr = unsafe {
+        MapViewOfFile(
+            new_map.map_handle,
+            FILE_MAP_READ| FILE_MAP_WRITE,
+            0,
+            0,
+            0
+        )
+    };
+    if new_map.map_ptr == NULL {
+        unsafe { CloseHandle(new_map.map_handle); }
+        return Err(From::from(format!("MapViewOfFile failed with {}", unsafe{GetLastError()})));
+    }
+
+    Ok(new_map)
 }
 
 
 pub fn open_mapping(unique_id: &str) -> Result<MapData> {
-    Err(From::from("A"))
+
+    let mut new_map: MapData = MapData {
+        unique_id: String::from(unique_id),
+        map_handle: NULL,
+        map_size: 0,
+        map_ptr: null_mut(),
+    };
+
+    //Open existing mapping
+    new_map.map_handle = unsafe {
+       OpenFileMappingA(
+           FILE_MAP_READ| FILE_MAP_WRITE,
+           FALSE,
+           CString::new(unique_id)?.as_ptr()
+       )
+   };
+   if new_map.map_handle as *mut _ == NULL {
+       return Err(From::from(format!("OpenFileMappingA failed with {}", unsafe{GetLastError()})));
+   }
+
+   //Map mapping into address space
+   new_map.map_ptr = unsafe {
+        MapViewOfFile(
+            new_map.map_handle,
+            FILE_MAP_READ| FILE_MAP_WRITE,
+            0,
+            0,
+            0
+        )
+    };
+    if new_map.map_ptr == NULL {
+        return Err(From::from(format!("MapViewOfFile failed with {}", unsafe{GetLastError()})));
+    }
+
+    //Get the size of our mapping
+    new_map.map_size = unsafe {
+        let mut mem_ba: MEMORY_BASIC_INFORMATION = MEMORY_BASIC_INFORMATION {
+            BaseAddress: null_mut(),
+            AllocationBase: null_mut(),
+            AllocationProtect: 0,
+            RegionSize: 0,
+            State: 0,
+            Protect: 0,
+            Type: 0,
+        };
+        let ret_val = VirtualQuery(
+            new_map.map_ptr as *const _,
+            &mut mem_ba as *mut _,
+            size_of::<MEMORY_BASIC_INFORMATION>()
+        );
+
+        //Couldnt get mapping size
+        if ret_val == 0 {
+            return Err(From::from(format!("VirtualQuery failed with {}", GetLastError())));
+        }
+
+        mem_ba.RegionSize
+    };
+
+    Ok(new_map)
 }
 
 
@@ -245,6 +347,7 @@ pub fn eventimpl_from_type(event_type: &EventType) -> &'static EventImpl {
         Ok(new_file)
     }
 */
+
 /*
     //Creates a new SharedMem, CreateFileMappingA()/MapViewOfFile()
     pub fn create(mut new_file: SharedMem, lock_type: LockType) -> Result<SharedMem> {
