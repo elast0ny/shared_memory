@@ -1,5 +1,4 @@
 extern crate winapi;
-
 extern crate rand;
 use self::rand::Rng;
 
@@ -20,7 +19,7 @@ use self::winapi::um::synchapi::{
     //WaitForMultipleObjects,
 };
 
-use super::{std,
+use super::{
     LockType,
     GenericLock,
     LockImpl,
@@ -29,15 +28,15 @@ use super::{std,
     EventState,
     Timeout,
     GenericEvent,
+    AutoBusy,
+    ManualBusy,
     Result,
 };
 
-use std::path::PathBuf;
 use std::mem::size_of;
 use std::ffi::CString;
 use std::ptr::{null_mut};
 use std::os::raw::c_void;
-use std::slice;
 
 pub struct MapData {
 
@@ -56,12 +55,6 @@ pub struct MapData {
 impl Drop for MapData {
     ///Takes care of properly closing the SharedMem (munmap(), shmem_unlink(), close())
     fn drop(&mut self) {
-        /*
-        //If we have an open lock handle
-        if self.lock_data_is_handle {
-            unsafe { CloseHandle(self.lock_data as *mut _); }
-        }
-        */
         //Unmap memory from our process
         if self.map_ptr as *mut _ == NULL {
             unsafe { UnmapViewOfFile(self.map_ptr as *mut _); }
@@ -197,40 +190,20 @@ pub fn lockimpl_from_type(lock_type: &LockType) -> &'static LockImpl {
 //This functions exports our implementation for each event type
 pub fn eventimpl_from_type(event_type: &EventType) -> &'static EventImpl {
     match event_type {
-        &EventType::AutoBusy => unimplemented!("shared_memory does not have a AutoBusy implementation for Windows..."),
-        &EventType::ManualBusy => unimplemented!("shared_memory does not have a ManualBusy implementation for Windows..."),
-        &EventType::Manual => unimplemented!("shared_memory does not have a Manual implementation for Windows..."),
-        &EventType::Auto => unimplemented!("shared_memory does not have a Auto implementation for Windows..."),
+        &EventType::AutoBusy => &AutoBusy{},
+        &EventType::ManualBusy => &ManualBusy{},
+        &EventType::Manual => &ManualGeneric{},
+        &EventType::Auto => &AutoGeneric{},
     }
 }
 
 /* Lock Implementations */
 
 //Mutex
-pub struct Mutex {}
-impl Mutex {
-    pub fn acquire_lock(&self, handle: *mut winapi::ctypes::c_void) -> Result<()> {
-        //Wait for mutex to be availabe
-        let wait_res = unsafe {WaitForSingleObject(
-            handle,
-            INFINITE)};
-
-        if wait_res == WAIT_OBJECT_0 {
-            Ok(())
-        } else {
-            Err(From::from("Failed to acquire Mutex !"))
-        }
-    }
-    pub fn release_lock(&self, handle: *mut winapi::ctypes::c_void) {
-        unsafe {ReleaseMutex(handle)};
-    }
-}
-
-struct MutexId {
+struct FeatureId {
     id: u32,
 }
-
-impl MutexId {
+impl FeatureId {
     pub fn get_namespace(&self) -> String {
         format!("shmem_rs_mutex_{:8X}", self.id)
     }
@@ -248,14 +221,15 @@ fn acquire_mutex(handle: *mut winapi::ctypes::c_void) -> Result<()> {
     }
 }
 
+pub struct Mutex {}
 impl LockImpl for Mutex {
 
     fn size_of(&self) -> usize {
-        size_of::<MutexId>()
+        size_of::<FeatureId>()
     }
     fn init(&self, lock_info: &mut GenericLock, create_new: bool) -> Result<()> {
 
-        let unique_id: &mut MutexId = unsafe {&mut (*(lock_info.lock_ptr as *mut MutexId))};
+        let unique_id: &mut FeatureId = unsafe {&mut (*(lock_info.lock_ptr as *mut FeatureId))};
 
         //Create the mutex and set the ID
         if create_new {
@@ -321,5 +295,57 @@ impl LockImpl for Mutex {
     }
     fn wunlock(&self, lock_ptr: *mut c_void) {
         unsafe {ReleaseMutex(lock_ptr)};
+    }
+}
+
+/* Event implementations */
+
+pub struct AutoGeneric {}
+impl EventImpl for AutoGeneric {
+    ///Returns the size of the event structure that will live in shared memory
+    fn size_of(&self) -> usize {
+        // + 3 allows us to move our EventCond to align it in the shmem
+        size_of::<FeatureId>()
+    }
+    ///Initializes the event
+    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<()> {
+        Err(From::from("A"))
+    }
+    ///De-initializes the event
+    fn destroy(&self, _event_info: &mut GenericEvent) {
+        //Nothing to do here
+    }
+    ///This method should only return once the event is signaled
+    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
+        Err(From::from("A"))
+    }
+    ///This method sets the event. This should never block
+    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
+        Err(From::from("A"))
+    }
+}
+
+pub struct ManualGeneric {}
+impl EventImpl for ManualGeneric {
+    ///Returns the size of the event structure that will live in shared memory
+    fn size_of(&self) -> usize {
+        // + 3 allows us to move our EventCond to align it in the shmem
+        size_of::<FeatureId>()
+    }
+    ///Initializes the event
+    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<()> {
+        Err(From::from("A"))
+    }
+    ///De-initializes the event
+    fn destroy(&self, _event_info: &mut GenericEvent) {
+        //Nothing to do here
+    }
+    ///This method should only return once the event is signaled
+    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
+        Err(From::from("A"))
+    }
+    ///This method sets the event. This should never block
+    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
+        Err(From::from("A"))
     }
 }
