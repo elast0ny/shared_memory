@@ -1,6 +1,8 @@
 use super::libc::{
     pthread_mutex_t,
     timespec,
+    clock_gettime,
+    CLOCK_REALTIME,
     pthread_mutex_trylock,
     EBUSY,
     ETIMEDOUT,
@@ -9,8 +11,6 @@ use super::libc::{
 };
 
 pub fn pthread_mutex_timedlock(lock: *mut pthread_mutex_t, abstime: &timespec) -> c_int {
-
-    compile_error!("Must implement pthread_mutex_timedlock on macos");
 
     let mut timenow: timespec = timespec {
         tv_sec: 0,
@@ -29,8 +29,8 @@ pub fn pthread_mutex_timedlock(lock: *mut pthread_mutex_t, abstime: &timespec) -
 
         if res == EBUSY {
             // Check timeout before sleeping
-            clock_gettime(CLOCK_REALTIME, &mut timenow)
-            if timenow.tv_sec >= abstime.tv_sec && timenow.tv_nsec >= abstime->tv_nsec {
+            unsafe {clock_gettime(CLOCK_REALTIME, &mut timenow)};
+            if timenow.tv_sec >= abstime.tv_sec && timenow.tv_nsec >= abstime.tv_nsec {
                 return ETIMEDOUT;
             }
 
