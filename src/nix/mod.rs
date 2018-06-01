@@ -5,6 +5,12 @@ cfg_if!{
     if #[cfg(target_os="linux")] {
         pub mod linux;
         pub use self::linux::*;
+        use self::libc::pthread_mutex_timedlock;
+    } else if #[cfg(target_os="mac")] {
+        pub mod mac;
+        pub use self::mac::*;
+    } else {
+        use self::libc::pthread_mutex_timedlock;
     }
 }
 
@@ -16,7 +22,6 @@ use self::libc::{
     //Mutex defs
     pthread_mutex_t,
     pthread_mutex_init,
-    pthread_mutex_timedlock,
     pthread_mutex_lock,
     pthread_mutex_unlock,
     //Mutex attribute
