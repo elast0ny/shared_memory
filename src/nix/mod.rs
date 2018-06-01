@@ -6,7 +6,7 @@ cfg_if!{
         pub mod linux;
         pub use self::linux::*;
         use self::libc::pthread_mutex_timedlock;
-    } else if #[cfg(target_os="mac")] {
+    } else if #[cfg(target_os="macos")] {
         pub mod mac;
         pub use self::mac::*;
     } else {
