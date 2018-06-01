@@ -1,7 +1,7 @@
 [package]
 name = "shared_memory"
 description = "A user friendly crate that allows you to share memory between processes"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["ElasT0ny <elast0ny00@gmail.com>"]
 license = "MIT OR Apache-2.0"
 
