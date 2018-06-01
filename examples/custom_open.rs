@@ -46,7 +46,13 @@ fn main() {
 
     //Simulate some signaling
     println!("Signaling peer...");
-    match my_shmem.set(ind(MyEvents::MyEvt), EventState::Signaled) {_=>{},};
+    match my_shmem.set(ind(MyEvents::MyEvt), EventState::Signaled) {
+        Ok(_) => {},
+        Err(e) => {
+            println!("Failed to signal peer !");
+            println!("{}", e);
+        }
+    };
 
     println!("Waiting for peer to signal for 10s");
     match my_shmem.wait(ind(MyEvents::PeerEvt), Timeout::Sec(10)) {
@@ -61,7 +67,25 @@ fn main() {
     };
 
     println!("Signaling peer...");
-    match my_shmem.set(ind(MyEvents::MyEvt), EventState::Signaled) {_=>{},};
+    match my_shmem.set(ind(MyEvents::MyEvt), EventState::Signaled) {
+        Ok(_) => {},
+        Err(e) => {
+            println!("Failed to signal peer !");
+            println!("{}", e);
+        }
+    };
+
+    println!("Reseting peer event to wait in 1 second");
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    match my_shmem.set(ind(MyEvents::MyEvt), EventState::Wait) {
+        Ok(_) => {},
+        Err(e) => {
+            println!("Failed to signal peer !");
+            println!("{}", e);
+        }
+    };
+
+    println!("Done !");
 
     return;
 }

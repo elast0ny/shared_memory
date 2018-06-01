@@ -32,7 +32,7 @@ fn main() -> Result<()> {
     //Add an event for every variation of our MyEvents enum
     let mut i: u8 = 0;
     while let Some(_v) = MyEvents::from_u8(i) {
-        my_conf = my_conf.add_event(EventType::AutoBusy)?;
+        my_conf = my_conf.add_event(EventType::Auto)?;
         i += 1;
     }
 
@@ -40,7 +40,6 @@ fn main() -> Result<()> {
     let mut my_shmem = my_conf.create()?;
 
     println!("Created link file with info : {}", my_shmem);
-
 
     //Simulate some signaling
     println!("Waiting for peer to signal for 5s");
@@ -63,7 +62,6 @@ fn main() -> Result<()> {
         Ok(()) => println!("\tGot signal !"),
         Err(_) => println!("\tNo signal :("),
     };
-
 
     println!("Done !");
     return Ok(());
