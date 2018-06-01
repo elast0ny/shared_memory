@@ -16,7 +16,7 @@ For usage examples, see code located in [examples/](examples/) :
   | Examples | Description |
   |----------|-------------|
   |simple_[[create](examples/simple_create.rs)&#124;[open](examples/simple_open.rs)]|Basic use of the library when all you need is memory protected by one lock|
-  |events_[[create](examples/events_create.rs)&#124;[open](examples/events_open.rs)] | Shows the more advanced usage of the crate with configs and events |
+  |custom_[[create](examples/custom_create.rs)&#124;[open](examples/custom_open.rs)] | Shows the more advanced usage of the crate with configs and events |
   |raw_[[create](examples/raw_create.rs)&#124;[open](examples/raw_create.rs)]| Create/Open raw mappings that are not managed by this crate |
 
 ## Synchronization Primitives
