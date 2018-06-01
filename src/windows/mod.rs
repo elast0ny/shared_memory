@@ -5,7 +5,13 @@ use self::rand::Rng;
 use self::winapi::shared::ntdef::{NULL};
 use self::winapi::shared::minwindef::{FALSE};
 use self::winapi::shared::winerror::*;
-use self::winapi::um::winbase::*;
+use self::winapi::um::winbase::{
+    CreateFileMappingA,
+    OpenFileMappingA,
+    INFINITE,
+    WAIT_OBJECT_0,
+    OpenMutexA,
+};
 use self::winapi::um::winnt::*;
 use self::winapi::um::handleapi::*;
 use self::winapi::um::memoryapi::*;
@@ -17,6 +23,11 @@ use self::winapi::um::synchapi::{
     WaitForSingleObject,
     ReleaseMutex,
     //WaitForMultipleObjects,
+    CreateEventExA,
+    CREATE_EVENT_MANUAL_RESET,
+    OpenEventA,
+    SetEvent,
+    ResetEvent,
 };
 
 use super::{
@@ -197,17 +208,18 @@ pub fn eventimpl_from_type(event_type: &EventType) -> &'static EventImpl {
     }
 }
 
-/* Lock Implementations */
-
-//Mutex
 struct FeatureId {
     id: u32,
 }
 impl FeatureId {
     pub fn get_namespace(&self) -> String {
-        format!("shmem_rs_mutex_{:8X}", self.id)
+        format!("shmem_rs_{:8X}", self.id)
     }
 }
+
+/* Lock Implementations */
+
+//Mutex
 
 fn acquire_mutex(handle: *mut winapi::ctypes::c_void) -> Result<()> {
     let wait_res = unsafe {WaitForSingleObject(
@@ -300,6 +312,75 @@ impl LockImpl for Mutex {
 
 /* Event implementations */
 
+fn timeout_to_milli(timeout: &Timeout) -> u32 {
+    match *timeout {
+        Timeout::Infinite => INFINITE,
+        Timeout::Sec(t) => (t * 1_000) as u32,
+        Timeout::Milli(t) => (t) as u32,
+        Timeout::Micro(t) => (t / 1_000) as u32,
+        Timeout::Nano(t) => (t / 1_000_000) as u32,
+    }
+}
+
+fn event_init(event_info: &mut GenericEvent, create_new: bool, manual_reset: bool) -> Result<()> {
+    let unique_id: &mut FeatureId = unsafe {&mut (*(event_info.ptr as *mut FeatureId))};
+
+    //Create the mutex and set the ID
+    if create_new {
+        unique_id.id = 0;
+        event_info.ptr = NULL;
+
+        loop {
+            while unique_id.id == 0 {
+                unique_id.id = rand::thread_rng().gen::<u32>();
+            }
+
+            event_info.ptr = unsafe {
+                CreateEventExA(
+                    null_mut(),
+                    CString::new(unique_id.get_namespace())?.as_ptr(),
+                    match manual_reset {
+                        true => CREATE_EVENT_MANUAL_RESET,
+                        false => 0,
+                    },
+                    EVENT_MODIFY_STATE | SYNCHRONIZE,
+                ) as *mut _
+            };
+            let last_error = unsafe{GetLastError()};
+
+            if event_info.ptr as *mut _ == NULL {
+                return Err(From::from(format!("[Create|Open]EventA failed with {}", unsafe{GetLastError()})));
+            } else if last_error == ERROR_ALREADY_EXISTS {
+                //Generate another ID and try again
+                unsafe {CloseHandle(event_info.ptr)};
+                continue;
+            }
+
+            //No error, we have create a mutex !
+            break;
+        }
+
+    } else {
+        if unique_id.id == 0 {
+            return Err(From::from("Mutex.init() [OPEN] : Mutex_id is 0... Has it been properly created ?"));
+        }
+
+        event_info.ptr = unsafe {
+            OpenEventA(
+                EVENT_MODIFY_STATE | SYNCHRONIZE,    // request full access
+                FALSE,          // handle not inheritable
+                CString::new(unique_id.get_namespace())?.as_ptr()
+            ) as *mut _
+        };
+
+        if event_info.ptr as *mut _ == NULL {
+            return Err(From::from(format!("[Create|Open]MutexA failed with {}", unsafe{GetLastError()})));
+        }
+    }
+
+    Ok(())
+}
+
 pub struct AutoGeneric {}
 impl EventImpl for AutoGeneric {
     ///Returns the size of the event structure that will live in shared memory
@@ -309,19 +390,37 @@ impl EventImpl for AutoGeneric {
     }
     ///Initializes the event
     fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<()> {
-        Err(From::from("A"))
+        event_init(event_info, create_new, false)
     }
     ///De-initializes the event
-    fn destroy(&self, _event_info: &mut GenericEvent) {
-        //Nothing to do here
+    fn destroy(&self, event_info: &mut GenericEvent) {
+        unsafe {CloseHandle(event_info.ptr)};
     }
     ///This method should only return once the event is signaled
     fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
-        Err(From::from("A"))
+        let wait_res = unsafe {
+            WaitForSingleObject(
+                event_ptr,
+                timeout_to_milli(&timeout)
+            )
+        };
+
+        if wait_res == WAIT_OBJECT_0 {
+            Ok(())
+        } else {
+            Err(From::from("AutoGeneric.wait() : Timed out"))
+        }
     }
     ///This method sets the event. This should never block
     fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
-        Err(From::from("A"))
+        if match state {
+            EventState::Wait => unsafe {ResetEvent(event_ptr)},
+            EventState::Signaled => unsafe {SetEvent(event_ptr)}
+        } == 0 {
+            return Err(From::from(format!("AutoGeneric.set() : Failed to set event to specified stated with error {}",  unsafe{GetLastError()})))
+        }
+
+        Ok(())
     }
 }
 
@@ -334,18 +433,36 @@ impl EventImpl for ManualGeneric {
     }
     ///Initializes the event
     fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<()> {
-        Err(From::from("A"))
+        event_init(event_info, create_new, true)
     }
     ///De-initializes the event
-    fn destroy(&self, _event_info: &mut GenericEvent) {
-        //Nothing to do here
+    fn destroy(&self, event_info: &mut GenericEvent) {
+        unsafe {CloseHandle(event_info.ptr)};
     }
     ///This method should only return once the event is signaled
     fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
-        Err(From::from("A"))
+        let wait_res = unsafe {
+            WaitForSingleObject(
+                event_ptr,
+                timeout_to_milli(&timeout)
+            )
+        };
+
+        if wait_res == WAIT_OBJECT_0 {
+            Ok(())
+        } else {
+            Err(From::from("ManualGeneric.wait() : Timed out"))
+        }
     }
     ///This method sets the event. This should never block
     fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
-        Err(From::from("A"))
+        if match state {
+            EventState::Wait => unsafe {ResetEvent(event_ptr)},
+            EventState::Signaled => unsafe {SetEvent(event_ptr)}
+        } == 0 {
+            return Err(From::from(format!("ManualGeneric.set() : Failed to set event to specified stated with error {}",  unsafe{GetLastError()})))
+        }
+
+        Ok(())
     }
 }
