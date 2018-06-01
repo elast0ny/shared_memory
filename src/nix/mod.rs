@@ -65,6 +65,7 @@ use super::{std,
     Timeout,
     GenericEvent,
     AutoBusy,
+    ManualBusy,
     Result,
 };
 
