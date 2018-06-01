@@ -259,7 +259,7 @@ pub fn eventimpl_from_type(event_type: &EventType) -> &'static EventImpl {
     }
 }
 
-fn timeout_to_timespec(timeout: Timeout) -> timespec {
+fn timeout_to_abstimespec(timeout: Timeout) -> timespec {
     let mut cur_time: timespec = timespec {
         tv_sec: -1,
         tv_nsec: 0,
@@ -361,10 +361,10 @@ impl LockImpl for Mutex {
     }
     fn destroy(&self, _lock_info: &mut GenericLock) {}
     fn rlock(&self, lock_ptr: *mut c_void) -> Result<()> {
-        mutex_lock(lock_ptr as *mut pthread_mutex_t, &timeout_to_timespec(Timeout::Infinite))
+        mutex_lock(lock_ptr as *mut pthread_mutex_t, &timeout_to_abstimespec(Timeout::Infinite))
     }
     fn wlock(&self, lock_ptr: *mut c_void) -> Result<()> {
-        mutex_lock(lock_ptr as *mut pthread_mutex_t, &timeout_to_timespec(Timeout::Infinite))
+        mutex_lock(lock_ptr as *mut pthread_mutex_t, &timeout_to_abstimespec(Timeout::Infinite))
     }
     fn runlock(&self, lock_ptr: *mut c_void) -> () {
         match mutex_unlock(lock_ptr as *mut pthread_mutex_t) {_=>{},};
@@ -546,13 +546,13 @@ impl EventImpl for AutoGeneric {
     fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
         let event: &mut EventCond = unsafe {&mut (*(event_ptr as *mut EventCond))};
         //Wait for the event, automatically reset signal state
-        event_wait(event, &timeout_to_timespec(timeout), true)
+        event_wait(event, &timeout_to_abstimespec(timeout), true)
     }
     ///This method sets the event. This should never block
     fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
         let event: &mut EventCond = unsafe {&mut (*(event_ptr as *mut EventCond))};
         //Set event using pthread_cond_signal
-        event_set(event, state, &timeout_to_timespec(Timeout::Infinite), true)
+        event_set(event, state, &timeout_to_abstimespec(Timeout::Infinite), true)
     }
 }
 
@@ -583,12 +583,12 @@ impl EventImpl for ManualGeneric {
     fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
         let event: &mut EventCond = unsafe {&mut (*(event_ptr as *mut EventCond))};
         //Wait for the event, dont reset signal state
-        event_wait(event, &timeout_to_timespec(timeout), false)
+        event_wait(event, &timeout_to_abstimespec(timeout), false)
     }
     ///This method sets the event. This should never block
     fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
         let event: &mut EventCond = unsafe {&mut (*(event_ptr as *mut EventCond))};
         //Set event using pthread_cond_broadcast
-        event_set(event, state, &timeout_to_timespec(Timeout::Infinite), false)
+        event_set(event, state, &timeout_to_abstimespec(Timeout::Infinite), false)
     }
 }
