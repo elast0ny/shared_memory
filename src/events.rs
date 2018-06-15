@@ -28,7 +28,7 @@ pub enum EventState {
     Signaled,
 }
 
-//TODO : This is super ugly
+//TODO : This is super ugly, not sure how to fix though...
 cfg_if! {
     if #[cfg(target_os="linux")] {
         enum_from_primitive! {
@@ -113,6 +113,7 @@ fn timeout_to_duration(timeout: Timeout) -> Duration {
     )
 }
 
+#[doc(hidden)]
 pub struct AutoBusy {}
 impl EventImpl for AutoBusy {
     fn size_of(&self) -> usize {
@@ -180,6 +181,7 @@ impl EventImpl for AutoBusy {
     }
 }
 
+#[doc(hidden)]
 pub struct ManualBusy {}
 impl EventImpl for ManualBusy {
     fn size_of(&self) -> usize {

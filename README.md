@@ -30,7 +30,7 @@ For usage examples, see code located in [examples/](examples/) :
 |EventType::*EventFd|[Linux specific event type](http://man7.org/linux/man-pages/man2/eventfd.2.html)|✔|N/A|N/A|N/A|
 
 <sup>\* Events take the Auto or Manual prefix to indicate whether signals are automatically "consumed" by waiting threads or not</sup>
-<br><sup>\*\* I do not own a Mac (or have FreeBSD installed) so my testing is limited to build only on these platforms</sup>
+<br><sup>\*\* I do not own a Mac (or have FreeBSD installed) so my validation is limited to "build only" on these platforms</sup>
 
 ## License
 

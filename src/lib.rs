@@ -1,4 +1,6 @@
 //! A user friendly crate that allows you to share memory between __processes__
+//!
+//! For help on how to get started, take a look at the examples !
 
 #[macro_use]
 extern crate cfg_if;
