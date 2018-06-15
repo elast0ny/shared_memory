@@ -16,6 +16,8 @@ cfg_if!{
 
 use self::libc::{
     timespec,
+    time_t,
+    c_long,
     clock_gettime,
     CLOCK_REALTIME,
 
@@ -268,19 +270,19 @@ fn timeout_to_abstimespec(timeout: Timeout) -> timespec {
         Timeout::Infinite => {},
         Timeout::Sec(t) => {
             unsafe {clock_gettime(CLOCK_REALTIME, &mut cur_time)};
-            cur_time.tv_sec += t as i64;
+            cur_time.tv_sec += t as time_t;
         },
         Timeout::Milli(t) => {
             unsafe {clock_gettime(CLOCK_REALTIME, &mut cur_time)};
-            cur_time.tv_nsec += (t * 1_000_000) as i64;
+            cur_time.tv_nsec += (t * 1_000_000) as c_long;
         },
         Timeout::Micro(t) => {
             unsafe {clock_gettime(CLOCK_REALTIME, &mut cur_time)};
-            cur_time.tv_nsec += (t * 1_000) as i64;
+            cur_time.tv_nsec += (t * 1_000) as c_long;
         },
         Timeout::Nano(t) => {
             unsafe {clock_gettime(CLOCK_REALTIME, &mut cur_time)};
-            cur_time.tv_nsec += t as i64;
+            cur_time.tv_nsec += t as c_long;
         },
     };
     cur_time
