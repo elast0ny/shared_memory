@@ -45,6 +45,7 @@ impl EventImpl for AutoEventFd {
 
         //If we open, we do not have the file descriptor for the eventfd yet...
         if !create_new {
+            // This is safely free'ed through self.destroy()
             event_info.ptr = Box::into_raw(evt_data) as *mut c_void;
             return Ok(())
         }
@@ -58,7 +59,7 @@ impl EventImpl for AutoEventFd {
         //Add the eventfd to our epoll context
         nix::sys::epoll::epoll_ctl(evt_data.ep_fd, nix::sys::epoll::EpollOp::EpollCtlAdd, evt_data.evt_fd, Some(&mut evt_data.epoll_event))?;
 
-        //TODO : Fix this memory leak
+        // This is safely free'ed through self.destroy()
         event_info.ptr = Box::into_raw(evt_data) as *mut c_void;
 
         Ok(())
@@ -156,6 +157,7 @@ impl EventImpl for ManualEventFd {
 
         //If we open, we do not have the file descriptor for the eventfd yet...
         if !create_new {
+            // This is safely free'ed through self.destroy()
             event_info.ptr = Box::into_raw(evt_data) as *mut c_void;
             return Ok(())
         }
@@ -166,7 +168,7 @@ impl EventImpl for ManualEventFd {
         //Add the eventfd to our epoll context
         nix::sys::epoll::epoll_ctl(evt_data.ep_fd, nix::sys::epoll::EpollOp::EpollCtlAdd, evt_data.evt_fd, Some(&mut evt_data.epoll_event))?;
 
-        //TODO : Fix this memory leak
+        // This is safely free'ed through self.destroy()
         event_info.ptr = Box::into_raw(evt_data) as *mut c_void;
 
         Ok(())
