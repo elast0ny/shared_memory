@@ -7,7 +7,8 @@ extern crate cfg_if;
 #[macro_use]
 extern crate enum_primitive;
 
-use std::path::PathBuf;
+use std::ffi::OsStr;
+use std::path::{PathBuf, Path};
 use std::fs::{File};
 use std::fs::remove_file;
 use std::slice;
@@ -94,15 +95,15 @@ impl<'a> SharedMem<'a> {
             .open()
     }
 
-    pub fn create_linked(new_link_path: &PathBuf, lock_type: LockType, size: usize) -> Result<SharedMem<'a>> {
+    pub fn create_linked(new_link_path: &OsStr, lock_type: LockType, size: usize) -> Result<SharedMem<'a>> {
         SharedMemConf::new()
             .set_link_path(new_link_path)
             .set_size(size)
             .add_lock(lock_type, 0, size).unwrap().create()
     }
-    pub fn open_linked(existing_link_path: PathBuf) -> Result<SharedMem<'a>> {
+    pub fn open_linked(existing_link_path: &OsStr) -> Result<SharedMem<'a>> {
         SharedMemConf::new()
-            .set_link_path(&existing_link_path)
+            .set_link_path(existing_link_path)
             .open()
     }
 
@@ -125,7 +126,7 @@ impl<'a> SharedMem<'a> {
     }
     ///Returns the link_path of the SharedMem
     #[inline]
-    pub fn get_link_path(&self) -> Option<&PathBuf> {
+    pub fn get_link_path(&self) -> Option<&Path> {
         self.conf.get_link_path()
     }
     ///Returns the OS specific path of the shared memory object
@@ -134,7 +135,7 @@ impl<'a> SharedMem<'a> {
     ///
     /// On Windows, this returns a namespace
     #[inline]
-    pub fn get_os_path(&self) -> &String {
+    pub fn get_os_path(&self) -> &str {
         &self.os_data.unique_id
     }
 

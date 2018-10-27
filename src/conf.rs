@@ -179,8 +179,8 @@ impl<'a> SharedMemConf<'a> {
         return self;
     }
     ///Sets the path for the link file
-    pub fn set_link_path(mut self, link_path: &PathBuf) -> SharedMemConf<'a> {
-        self.link_path = Some(link_path.clone());
+    pub fn set_link_path(mut self, link_path: &OsStr) -> SharedMemConf<'a> {
+        self.link_path = Some(PathBuf::from(link_path));
         return self;
     }
     ///Sets a specific unique_id to be used when creating the mapping
@@ -470,13 +470,21 @@ impl<'a> SharedMemConf<'a> {
 
     #[inline]
     ///Returns the currently set link_path value
-    pub fn get_link_path(&self) -> Option<&PathBuf> {
-        self.link_path.as_ref()
+    pub fn get_link_path(&self) -> Option<&Path> {
+        let lpath = self.link_path.as_ref();
+        match lpath {
+            Some(pbuf) => Some(&**pbuf), // deref borrow, then call Deref() then return ref
+            None => None,
+        }
     }
     #[inline]
     ///Returns the currently set os_path value
-    pub fn get_os_path(&self) -> Option<&String> {
-        self.wanted_os_path.as_ref()
+    pub fn get_os_path(&self) -> Option<&str> {
+        let path = self.wanted_os_path.as_ref();
+        match path {
+            Some(pbuf) => Some(&**pbuf), // deref borrow, then call Deref() then return ref
+            None => None,
+        }
     }
     #[inline]
     ///Return the current size of the user data

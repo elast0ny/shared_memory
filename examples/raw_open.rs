@@ -8,7 +8,7 @@ use std::sync::atomic::*;
 fn main() {
 
     //Open an existing raw SharedMem
-    let mut my_shmem: SharedMemRaw = match SharedMemRaw::open(String::from("some_raw_map")) {
+    let mut my_shmem: SharedMemRaw = match SharedMemRaw::open("some_raw_map") {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);
