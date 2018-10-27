@@ -12,7 +12,7 @@ pub struct SharedMemRaw {
 impl SharedMemRaw {
 
     ///Creates a raw mapping
-    pub fn create(unique_id: String, size: usize) -> Result<SharedMemRaw> {
+    pub fn create(unique_id: &str, size: usize) -> Result<SharedMemRaw> {
 
         let os_map: os_impl::MapData = os_impl::create_mapping(&unique_id, size)?;
 
@@ -21,7 +21,7 @@ impl SharedMemRaw {
         })
     }
     ///Opens a raw mapping
-    pub fn open(unique_id: String) -> Result<SharedMemRaw> {
+    pub fn open(unique_id: &str) -> Result<SharedMemRaw> {
 
         //Attempt to open the mapping
         let os_map = os_impl::open_mapping(&unique_id)?;
@@ -37,7 +37,7 @@ impl SharedMemRaw {
     }
     #[inline]
     ///Returns the OS specific path of the raw mapping
-    pub fn get_path(&self) -> &String {
+    pub fn get_path(&self) -> &str {
         &self.os_data.unique_id
     }
     #[inline]

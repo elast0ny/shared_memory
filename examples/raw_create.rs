@@ -10,7 +10,7 @@ use std::sync::atomic::*;
 fn main() {
 
     //Create a new raw shared mapping
-    let my_shmem: SharedMemRaw = match SharedMemRaw::create(String::from("some_raw_map"), 4096) {
+    let my_shmem: SharedMemRaw = match SharedMemRaw::create("some_raw_map", 4096) {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);

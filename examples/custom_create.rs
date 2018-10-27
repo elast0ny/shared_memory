@@ -1,6 +1,6 @@
 extern crate shared_memory;
 use shared_memory::*;
-use std::path::PathBuf;
+use std::ffi::OsStr;
 
 #[macro_use]
 extern crate enum_primitive;
@@ -25,7 +25,7 @@ fn main() -> Result<()> {
 
     //Create a custom configuration for our mapping
     let mut my_conf = SharedMemConf::new()
-        .set_link_path(&PathBuf::from("shared_mem.link"))
+        .set_link_path(&OsStr::new("shared_mem.link"))
         .set_os_path("test_mapping")
         .set_size(4096);
 
