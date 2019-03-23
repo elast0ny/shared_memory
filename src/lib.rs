@@ -70,9 +70,9 @@ mod raw;
 pub use raw::*;
 
 ///Default shared mapping structure
-pub struct SharedMem<'a> {
+pub struct SharedMem {
     //Config that describes this mapping
-    conf: SharedMemConf<'a>,
+    conf: SharedMemConf,
     //The currently in use link file
     link_file: Option<File>,
     //Os specific data for the mapping
@@ -80,30 +80,30 @@ pub struct SharedMem<'a> {
     //User data start address
     user_ptr: *mut c_void,
 }
-impl<'a> SharedMem<'a> {
+impl SharedMem {
 
     ///Creates a memory mapping with no link file of specified size controlled by a single lock.
-    pub fn create(lock_type: LockType, size: usize) -> Result<SharedMem<'a>> {
+    pub fn create(lock_type: LockType, size: usize) -> Result<SharedMem> {
         SharedMemConf::new()
             .set_size(size)
             .add_lock(lock_type, 0, size).unwrap().create()
     }
 
-    pub fn open(unique_id: &str) -> Result<SharedMem<'a>> {
+    pub fn open(unique_id: &str) -> Result<SharedMem> {
         SharedMemConf::new()
             .set_os_path(unique_id)
             .open()
     }
 
-    pub fn create_linked(new_link_path: &OsStr, lock_type: LockType, size: usize) -> Result<SharedMem<'a>> {
+    pub fn create_linked<I: AsRef<OsStr>>(new_link_path: I, lock_type: LockType, size: usize) -> Result<SharedMem> {
         SharedMemConf::new()
-            .set_link_path(new_link_path)
+            .set_link_path(new_link_path.as_ref())
             .set_size(size)
             .add_lock(lock_type, 0, size).unwrap().create()
     }
-    pub fn open_linked(existing_link_path: &OsStr) -> Result<SharedMem<'a>> {
+    pub fn open_linked<I: AsRef<OsStr>>(existing_link_path: I) -> Result<SharedMem> {
         SharedMemConf::new()
-            .set_link_path(existing_link_path)
+            .set_link_path(existing_link_path.as_ref())
             .open()
     }
 
@@ -144,7 +144,7 @@ impl<'a> SharedMem<'a> {
         self.user_ptr
     }
 }
-impl<'a> Drop for SharedMem<'a> {
+impl Drop for SharedMem {
 
     ///Deletes the SharedMemConf artifacts
     fn drop(&mut self) {
@@ -162,7 +162,7 @@ impl<'a> Drop for SharedMem<'a> {
         }
     }
 }
-impl<'a> fmt::Display for SharedMem<'a> {
+impl fmt::Display for SharedMem {
 
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "
@@ -187,7 +187,7 @@ impl<'a> fmt::Display for SharedMem<'a> {
         )
     }
 }
-impl<'a>ReadLockable for SharedMem<'a> {
+impl ReadLockable for SharedMem {
     fn rlock<D: SharedMemCast>(&self, lock_index: usize) -> Result<ReadLockGuard<D>> {
 
         let lock: &GenericLock = self.conf.get_lock(lock_index);
@@ -239,7 +239,7 @@ impl<'a>ReadLockable for SharedMem<'a> {
         )
     }
 }
-impl<'a>WriteLockable for SharedMem<'a> {
+impl WriteLockable for SharedMem {
     fn wlock<D: SharedMemCast>(&mut self, lock_index: usize) -> Result<WriteLockGuard<D>> {
 
         let lock: &GenericLock = self.conf.get_lock(lock_index);
@@ -292,7 +292,7 @@ impl<'a>WriteLockable for SharedMem<'a> {
         )
     }
 }
-impl<'a> ReadRaw for SharedMem<'a> {
+impl ReadRaw for SharedMem {
     unsafe fn get_raw<D: SharedMemCast>(&self) -> &D {
         let user_data = self.os_data.map_ptr as usize + self.conf.get_metadata_size();
         return &(*(user_data as *const D))
@@ -310,7 +310,7 @@ impl<'a> ReadRaw for SharedMem<'a> {
         return slice::from_raw_parts(user_data as *const D, num_items);
     }
 }
-impl<'a> WriteRaw for SharedMem<'a> {
+impl WriteRaw for SharedMem {
     unsafe fn get_raw_mut<D: SharedMemCast>(&mut self) -> &mut D {
         let user_data = self.os_data.map_ptr as usize + self.conf.get_metadata_size();
         return &mut (*(user_data as *mut D))
@@ -327,13 +327,13 @@ impl<'a> WriteRaw for SharedMem<'a> {
         return slice::from_raw_parts_mut(user_data as *mut D, num_items);
     }
 }
-impl<'a> EventSet for SharedMem<'a> {
+impl EventSet for SharedMem {
     fn set(&mut self, event_index: usize, state: EventState) -> Result<()> {
         let lock: &GenericEvent = self.conf.get_event(event_index);
         lock.interface.set(lock.ptr, state)
     }
 }
-impl<'a> EventWait for SharedMem<'a> {
+impl EventWait for SharedMem {
     fn wait(&self, event_index: usize, timeout: Timeout) -> Result<()> {
         let lock: &GenericEvent = self.conf.get_event(event_index);
         lock.interface.wait(lock.ptr, timeout)

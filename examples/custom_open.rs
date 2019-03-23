@@ -1,6 +1,5 @@
 extern crate shared_memory;
 use shared_memory::*;
-use std::ffi::OsStr;
 
 #[macro_use]
 extern crate enum_primitive;
@@ -22,7 +21,7 @@ fn ind(ev_type: MyEvents) -> usize {
 fn main() {
 
     //Open an existing shared SharedMem
-    let mut my_shmem = match SharedMem::open_linked(OsStr::new("shared_mem.link")) {
+    let mut my_shmem = match SharedMem::open_linked("shared_mem.link") {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);

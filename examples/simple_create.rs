@@ -1,6 +1,5 @@
 extern crate shared_memory;
 use shared_memory::*;
-use std::ffi::OsStr;
 
 struct SomeState {
     num_listenners: u32,
@@ -12,7 +11,7 @@ unsafe impl SharedMemCast for SomeState {}
 fn main() {
 
     //Create a simple shared memory mapping with 1 lock controlling the whole mapping
-    let mut my_shmem = match SharedMem::create_linked(OsStr::new("shared_mem.link"), LockType::Mutex, 4096) {
+    let mut my_shmem = match SharedMem::create_linked("shared_mem.link", LockType::Mutex, 4096) {
         Ok(m) => m,
         Err(e) => {
             println!("Error : {}", e);

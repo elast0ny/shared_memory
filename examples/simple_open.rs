@@ -1,6 +1,5 @@
 extern crate shared_memory;
 use shared_memory::*;
-use std::ffi::OsStr;
 use std::str::from_utf8_unchecked;
 
 //Is there a rust function that does this ?
@@ -16,7 +15,7 @@ fn from_ut8f_to_null(bytes: &[u8], max_len: usize) -> &str {
 fn main() {
 
     //Open an existing SharedMem
-    let mut my_shmem = match SharedMem::open_linked(OsStr::new("shared_mem.link")) {
+    let mut my_shmem = match SharedMem::open_linked("shared_mem.link") {
         Ok(v) => v,
         Err(e) => {
             println!("Error : {}", e);

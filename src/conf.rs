@@ -45,7 +45,7 @@ struct EventHeader {
 }
 
 ///Configuration used to describe a shared memory mapping before openning/creation
-pub struct SharedMemConf<'a> {
+pub struct SharedMemConf {
     owner: bool,
     link_path: Option<PathBuf>,
     wanted_os_path: Option<String>,
@@ -53,10 +53,10 @@ pub struct SharedMemConf<'a> {
 
     meta_size: usize,
     lock_range_tree: IntervalTree<usize>,
-    lock_data: Vec<GenericLock<'a>>,
-    event_data: Vec<GenericEvent<'a>>,
+    lock_data: Vec<GenericLock>,
+    event_data: Vec<GenericEvent>,
 }
-impl<'a> SharedMemConf<'a> {
+impl SharedMemConf {
 
     //Validate if a lock range makes sense based on the mapping size
     fn valid_lock_range(map_size: usize, offset: usize, length:usize) -> bool {
@@ -160,7 +160,7 @@ impl<'a> SharedMemConf<'a> {
     }
 
     ///Returns a new SharedMemConf
-    pub fn new() -> SharedMemConf<'a> {
+    pub fn new() -> SharedMemConf {
         SharedMemConf {
             owner: false,
             link_path: None,
@@ -174,32 +174,32 @@ impl<'a> SharedMemConf<'a> {
         }
     }
     ///Sets the size of the usable memory in the mapping
-    pub fn set_size(mut self, wanted_size: usize) -> SharedMemConf<'a> {
+    pub fn set_size(mut self, wanted_size: usize) -> SharedMemConf {
         self.size = wanted_size;
         return self;
     }
     ///Sets the path for the link file
-    pub fn set_link_path(mut self, link_path: &OsStr) -> SharedMemConf<'a> {
-        self.link_path = Some(PathBuf::from(link_path));
+    pub fn set_link_path<I: AsRef<OsStr>>(mut self, link_path: I) -> SharedMemConf {
+        self.link_path = Some(PathBuf::from(link_path.as_ref()));
         return self;
     }
     ///Sets a specific unique_id to be used when creating the mapping
-    pub fn set_os_path(mut self, unique_id: &str) -> SharedMemConf<'a> {
+    pub fn set_os_path(mut self, unique_id: &str) -> SharedMemConf {
         self.wanted_os_path = Some(String::from(unique_id));
         return self;
     }
     ///Adds a lock of specified type on a range of bytes
-    pub fn add_lock(mut self, lock_type: LockType, offset: usize, length: usize) -> Result<SharedMemConf<'a>> {
+    pub fn add_lock(mut self, lock_type: LockType, offset: usize, length: usize) -> Result<SharedMemConf> {
         self.add_lock_impl(lock_type, offset, length)?;
         Ok(self)
     }
     ///Adds an event of specified type
-    pub fn add_event(mut self, event_type: EventType) -> Result<SharedMemConf<'a>> {
+    pub fn add_event(mut self, event_type: EventType) -> Result<SharedMemConf> {
         self.add_event_impl(event_type)?;
         Ok(self)
     }
     ///Creates a shared memory mapping from the current config values
-    pub fn create(mut self) -> Result<SharedMem<'a>> {
+    pub fn create(mut self) -> Result<SharedMem> {
 
         if self.size == 0 {
             return Err(From::from("SharedMemConf.create() : Cannot create a mapping of size 0"));
@@ -220,7 +220,7 @@ impl<'a> SharedMemConf<'a> {
         let unique_id: String = match self.wanted_os_path {
             Some(ref s) => s.clone(),
             None => {
-                format!("shmem_rs_{:16X}", rand::thread_rng().gen::<u64>())
+                format!("/shmem_rs_{:16X}", rand::thread_rng().gen::<u64>())
             },
         };
 
@@ -301,7 +301,7 @@ impl<'a> SharedMemConf<'a> {
     ///Opens a shared memory mapping.
     ///
     ///This will look at the current link_path/os_path to create the SharedMem. Other values will be reset.
-    pub fn open(mut self) -> Result<SharedMem<'a>> {
+    pub fn open(mut self) -> Result<SharedMem> {
 
         //Attempt to open the mapping
         let mut cur_link: Option<File> = None;

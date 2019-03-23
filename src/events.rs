@@ -4,12 +4,12 @@ use std::mem::size_of;
 use std::time::{Duration, Instant};
 
 #[doc(hidden)]
-pub struct GenericEvent<'a> {
+pub struct GenericEvent {
     pub uid: u8,
     pub ptr: *mut c_void,
-    pub interface: &'a EventImpl,
+    pub interface: &'static EventImpl,
 }
-impl<'a> Drop for GenericEvent<'a> {
+impl Drop for GenericEvent {
     fn drop(&mut self) {
         self.interface.destroy(self);
     }

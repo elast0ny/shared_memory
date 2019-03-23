@@ -9,16 +9,17 @@
 use super::*;
 use std::ops::{Deref, DerefMut};
 use std::os::raw::c_void;
+use std::boxed::Box;
 
 #[doc(hidden)]
-pub struct GenericLock<'a> {
+pub struct GenericLock {
     /* Fields shared in the memory mapping */
     pub uid: u8,
     pub offset: usize,
     pub length: usize,
     pub data_ptr: *mut c_void,
     pub lock_ptr: *mut c_void,
-    pub interface: &'a LockImpl,
+    pub interface: &'static LockImpl,
 }
 
 enum_from_primitive! {
