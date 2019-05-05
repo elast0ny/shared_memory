@@ -9,7 +9,6 @@
 use super::*;
 use std::ops::{Deref, DerefMut};
 use std::os::raw::c_void;
-use std::boxed::Box;
 
 #[doc(hidden)]
 pub struct GenericLock {
