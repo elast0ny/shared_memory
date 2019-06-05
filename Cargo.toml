@@ -23,6 +23,7 @@ enum_primitive = "0.1"
 [dependencies]
 cfg-if = "0.1"
 enum_primitive = "0.1"
+log = "0.4"
 theban_interval_tree = "0.7"
 memrange = "0.1"
 rand = "0.4"

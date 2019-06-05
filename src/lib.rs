@@ -6,6 +6,8 @@
 extern crate cfg_if;
 #[macro_use]
 extern crate enum_primitive;
+#[macro_use]
+extern crate log;
 
 use std::ffi::OsStr;
 use std::path::{PathBuf, Path};

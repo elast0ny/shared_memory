@@ -115,8 +115,8 @@ impl Drop for MapData {
             match unsafe {munmap(self.map_ptr as *mut _, self.map_size)} {
                 Ok(_) => {},
                 Err(e) => {
-                    println!("os_impl::Linux : Failed to munmap() shared memory mapping...");
-                    println!("{}", e);
+                    debug!("os_impl::Linux : Failed to munmap() shared memory mapping...");
+                    debug!("{}", e);
                 },
             };
         }
@@ -127,22 +127,22 @@ impl Drop for MapData {
             if self.owner {
                 match shm_unlink(self.unique_id.as_str()) {
                     Ok(_) => {
-                        //println!("shm_unlink()");
+                        //debug!("shm_unlink()");
                     },
                     Err(e) => {
-                        println!("os_impl::Linux : Failed to shm_unlink() shared memory name...");
-                        println!("{}", e);
+                        debug!("os_impl::Linux : Failed to shm_unlink() shared memory name...");
+                        debug!("{}", e);
                     },
                 };
             }
 
             match close(self.map_fd) {
                 Ok(_) => {
-                    //println!("close()");
+                    //debug!("close()");
                 },
                 Err(e) => {
-                    println!("os_impl::Linux : Failed to close() shared memory file descriptor...");
-                    println!("{}", e);
+                    debug!("os_impl::Linux : Failed to close() shared memory file descriptor...");
+                    debug!("{}", e);
                 },
             };
         }

@@ -378,7 +378,7 @@ impl SharedMemConf {
                 }
             };
 
-            println!("\tFound new lock \"{:?}\" : offset {} length {}", lock_type, lock_header.offset, lock_header.length);
+            debug!("\tFound new lock \"{:?}\" : offset {} length {}", lock_type, lock_header.offset, lock_header.length);
 
             //Add new lock to our config
             self.add_lock_impl(lock_type, lock_header.offset as usize, lock_header.length as usize)?;
@@ -419,7 +419,7 @@ impl SharedMemConf {
                 }
             };
 
-            println!("\tFound new event \"{:?}\"", event_type);
+            debug!("\tFound new event \"{:?}\"", event_type);
 
             self.add_event_impl(event_type)?;
 
