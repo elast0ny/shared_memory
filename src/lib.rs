@@ -8,6 +8,8 @@ extern crate cfg_if;
 extern crate enum_primitive;
 #[macro_use]
 extern crate log;
+#[cfg(feature="fs2")]
+extern crate fs2;
 
 use std::ffi::OsStr;
 use std::path::{PathBuf, Path};

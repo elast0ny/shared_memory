@@ -198,6 +198,7 @@ impl SharedMemConf {
         self.add_event_impl(event_type)?;
         Ok(self)
     }
+
     ///Creates a shared memory mapping from the current config values
     pub fn create(mut self) -> Result<SharedMem> {
 
@@ -208,12 +209,8 @@ impl SharedMemConf {
         //Create link file if required
         let mut cur_link: Option<File> = None;
         if let Some(ref file_path) = self.link_path {
-            if file_path.is_file() {
-                return Err(From::from("SharedMemConf.create() : Link file already exists"));
-            } else {
-                cur_link = Some(File::create(file_path)?);
-                self.owner = true;
-            }
+            cur_link = Some(create_file(file_path)?);
+            self.owner = true;
         }
 
         //Generate a random unique_id if not specified
@@ -291,6 +288,13 @@ impl SharedMemConf {
 
         self.meta_size = meta_size;
 
+        #[cfg(feature="fs2")] {
+            use fs2::FileExt;
+            if let Some(ref f)=cur_link{
+                f.try_lock_shared()?;
+            }
+        }
+
         Ok(SharedMem {
             conf: self,
             os_data: os_map,
@@ -317,6 +321,12 @@ impl SharedMemConf {
                     }
                     //Get real_path from link file
                     let mut link_file = File::open(link_file_path)?;
+
+                    #[cfg(feature="fs2")]{
+                        use fs2::FileExt;
+                        link_file.lock_shared()?;
+                    }
+
                     let mut file_contents: Vec<u8> = Vec::new();
                     link_file.read_to_end(&mut file_contents)?;
                     cur_link = Some(link_file);
@@ -525,4 +535,21 @@ impl SharedMemConf {
     pub fn get_event(&self, event_index: usize) -> &GenericEvent {
         &self.event_data[event_index]
     }
+}
+
+#[cfg(feature="fs2")]
+fn create_file(file_path:&PathBuf)->Result<File>{
+    use fs2::FileExt;
+    let file = std::fs::OpenOptions::new().write(true).create(true).open(file_path)?;
+    file.try_lock_exclusive()?;
+    file.set_len(0)?;
+    Ok(file)
+}
+
+#[cfg(not(feature="fs2"))]
+fn create_file(file_path:&PathBuf)->Result<File>{
+    if file_path.is_file() {
+        return Err(From::from("SharedMemConf.create() : Link file already exists"));
+    }
+    Ok(File::create(file_path)?)
 }

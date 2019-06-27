@@ -27,6 +27,7 @@ log = "0.4"
 theban_interval_tree = "0.7"
 memrange = "0.1"
 rand = "0.4"
+fs2 = { version = "0.4.3", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.10"
