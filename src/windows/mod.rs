@@ -67,7 +67,7 @@ impl Drop for MapData {
     ///Takes care of properly closing the SharedMem (munmap(), shmem_unlink(), close())
     fn drop(&mut self) {
         //Unmap memory from our process
-        if self.map_ptr as *mut _ == NULL {
+        if self.map_ptr as *mut _ != NULL {
             unsafe { UnmapViewOfFile(self.map_ptr as *mut _); }
         }
 
