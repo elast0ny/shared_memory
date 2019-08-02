@@ -1,3 +1,8 @@
+[workspace]
+members = [
+    "shared_memory_derive",
+]
+
 [package]
 name = "shared_memory"
 description = "A user friendly crate that allows you to share memory between processes"
