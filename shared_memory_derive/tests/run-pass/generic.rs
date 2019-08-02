@@ -1,17 +1,17 @@
-//! Generics must have a SharedMemCast bound.
+//! It is typical for macros to insert the T: SharedMemCast bound automatically
 
 use shared_memory::SharedMemCast;
 
 #[derive(SharedMemCast)]
-pub struct MyStruct<T: SharedMemCast> {
+pub struct MyStruct<T> {
     x: T,
 }
 
 #[derive(SharedMemCast)]
-pub struct MyStruct2<T: SharedMemCast>(T);
+pub struct MyStruct2<T>(T);
 
 #[derive(SharedMemCast)]
-pub enum MyData<T: SharedMemCast> {
+pub enum MyData<T> {
     Foo(i32),
     Bar {
         x: f64,
