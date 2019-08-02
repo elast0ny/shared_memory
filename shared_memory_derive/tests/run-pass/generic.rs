@@ -42,5 +42,4 @@ fn main() {
     fn generic_param3<U: SharedMemCast>() {
         assert_impl::<MyData<U>>();
     }
-
 }
