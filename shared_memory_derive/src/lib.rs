@@ -12,5 +12,5 @@ use proc_macro::TokenStream;
 pub fn derive(input: TokenStream) -> TokenStream {
     let _ = input;
 
-    unimplemented!()
+    TokenStream::new()
 }
