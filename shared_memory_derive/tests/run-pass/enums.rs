@@ -14,8 +14,10 @@ pub enum MyData {
     Foo(i32),
     Bar {
         x: f64,
+        y: f64,
         yyy: [f64; 32],
-    }
+    },
+    Spam(i32),
 }
 
 fn assert_impl<T: SharedMemCast>() {}

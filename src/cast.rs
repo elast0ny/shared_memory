@@ -22,7 +22,26 @@ use std::sync::atomic::*;
 /// This means that to cast a Vec to the shared memory, the memory has to already be initialized with valid pointers and metadata.
 /// Granted we could initialize those fields manually, the use of the vector might then trigger a free/realloc on our shared memory.
 ///
-pub unsafe trait SharedMemCast {}
+pub unsafe trait SharedMemCast {
+    // This method is used solely by #[derive] to assert that every component of a type implements
+    // this trait. The current deriving infrastructure means doing this assertion robustly without
+    // using a method on this trait is nearly impossible.
+    //
+    // This should never be implemented by hand.
+    //
+    // Source: https://github.com/rust-lang/rust/blob/c43753f910aae000f8bcb0a502407ea332afc74b/src/libcore/cmp.rs#L246-L256
+    #[doc(hidden)]
+    #[inline]
+    fn assert_receiver_is_shared_mem_cast(&self) {}
+}
+
+/// This struct is used solely by #[derive] to assert that every component of a type implements the
+/// SharedMemCast trait.
+///
+/// This struct should never appear in user code.
+#[doc(hidden)]
+pub struct AssertIsSharedMemCast<T: SharedMemCast + ?Sized> { _field: std::marker::PhantomData<T> }
+
 unsafe impl SharedMemCast for bool {}
 unsafe impl SharedMemCast for char {}
 unsafe impl SharedMemCast for str {}

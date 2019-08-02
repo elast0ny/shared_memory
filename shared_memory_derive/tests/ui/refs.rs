@@ -12,11 +12,11 @@ pub struct MyStruct2<'a>(&'a i32);
 
 #[derive(SharedMemCast)]
 pub struct MyStructTraitObject<'a> {
-    x: &'a SharedMemCast,
+    x: &'a dyn SharedMemCast,
 }
 
 #[derive(SharedMemCast)]
-pub struct MyStruct2TraitObject<'a>(&'a SharedMemCast);
+pub struct MyStruct2TraitObject<'a>(&'a dyn SharedMemCast);
 
 // No lifetime on struct itself so forced to reject based on field
 #[derive(SharedMemCast)]

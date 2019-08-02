@@ -1,4 +1,5 @@
-//! Generics should assert that the parameter implements the trait
+//! We should assert that each parameter type implements the trait and fail to
+//! compile if it does not.
 
 use shared_memory::SharedMemCast;
 

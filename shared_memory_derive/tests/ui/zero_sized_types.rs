@@ -5,7 +5,6 @@ use shared_memory::SharedMemCast;
 #[derive(SharedMemCast)]
 pub enum EmptyEnum {}
 
-//TODO: Empty structs may actually be okay?
 #[derive(SharedMemCast)]
 pub struct Empty;
 
@@ -13,7 +12,9 @@ pub struct Empty;
 pub struct Empty2 {
 }
 
-//TODO: Empty fields may actually be okay?
+#[derive(SharedMemCast)]
+pub struct Empty3();
+
 #[derive(SharedMemCast)]
 pub struct StillEmpty {
     x: (),
