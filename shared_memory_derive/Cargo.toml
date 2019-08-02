@@ -1,9 +1,10 @@
 [package]
 name = "shared_memory_derive"
 description = "Support crate that provides macros for the shared_memory crate."
-version = "0.1.0"
+version = "0.8.2" # should be synced with shared_memory crate
 authors = ["ElasT0ny <elast0ny00@gmail.com>", "Sunjay Varma <varma.sunjay@gmail.com>"]
 license = "MIT OR Apache-2.0"
+edition = "2018"
 
 #Extra fields for crates.io
 readme = "README.md"

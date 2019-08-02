@@ -9,6 +9,7 @@ description = "A user friendly crate that allows you to share memory between pro
 version = "0.8.2"
 authors = ["ElasT0ny <elast0ny00@gmail.com>"]
 license = "MIT OR Apache-2.0"
+edition = "2018"
 
 #Extra fields for crates.io
 readme = "README.md"
@@ -32,6 +33,7 @@ log = "0.4"
 theban_interval_tree = "0.7"
 memrange = "0.1"
 rand = "0.4"
+shared_memory_derive = { path = "shared_memory_derive", version = "0.8.2" }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.10"

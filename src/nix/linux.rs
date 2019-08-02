@@ -1,5 +1,5 @@
 //This file contains the linux specific implementations
-use super::{std,
+use super::{
     EventImpl,
     EventState,
     Timeout,

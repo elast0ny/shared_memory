@@ -9,6 +9,9 @@ extern crate enum_primitive;
 #[macro_use]
 extern crate log;
 
+// Re-export proc macros
+#[doc(hidden)] pub use shared_memory_derive::*;
+
 use std::ffi::OsStr;
 use std::path::{PathBuf, Path};
 use std::fs::{File};
@@ -32,7 +35,7 @@ cfg_if! {
         use windows as os_impl;
     } else if #[cfg(any(target_os="freebsd", target_os="linux", target_os="macos"))] {
         mod nix;
-        use nix as os_impl;
+        use crate::nix as os_impl;
     } else {
         compile_error!("shared_memory isnt implemented for this platform...");
     }
