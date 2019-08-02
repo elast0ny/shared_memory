@@ -1,12 +1,32 @@
 use std::sync::atomic::*;
 
-/// Read [WARNING](trait.SharedMemCast.html#warning) before use
-///
 /// Trait used to indicate that a type can be cast over the shared memory.
 ///
-/// For now, shared_memory implements the trait on almost all primitive types.
+/// Read [WARNING](trait.SharedMemCast.html#warning) before implementing this manually on your own
+/// types.
 ///
-/// ### __<span style="color:red">WARNING</span>__
+/// For now, `shared_memory` implements the trait on almost all primitive types.
+///
+/// # Deriving Automatically
+///
+/// You can avoid checking your structs/enums manually by using `#[derive(SharedMemCast)]`. This
+/// will automatically check that all fields of your type implement the `SharedMemCast` trait. That
+/// means that you can safely use your type as long as your program compiles.
+///
+/// ```rust
+/// use shared_memory::SharedMemCast;
+///
+/// #[derive(SharedMemCast)]
+/// struct SomeState {
+///     num_listenners: u32,
+///     message: [u8; 256],
+/// }
+/// ```
+///
+/// If you tried to use `Vec<i32>` or some other type that isn't safe to cast, you would get a
+/// compiler error.
+///
+/// # __<span style="color:red">WARNING</span>__
 ///
 /// Only implement this trait if you understand the implications of mapping Rust types to shared memory.
 /// When doing so, you should be mindful of :
@@ -17,7 +37,7 @@ use std::sync::atomic::*;
 /// * Does my type allow for initialisation after instantiation ?
 ///    * A [R|W]lock to the shared memory returns a reference to your type. That means that any use of that reference assumes that the type was properly initialized.
 ///
-/// An example of a type that __shouldnt__ be cast to the shared memory would be Vec.
+/// An example of a type that __shouldn't__ be cast to the shared memory would be Vec.
 /// Vec internaly contains a pointer to a slice containing its data and some other metadata.
 /// This means that to cast a Vec to the shared memory, the memory has to already be initialized with valid pointers and metadata.
 /// Granted we could initialize those fields manually, the use of the vector might then trigger a free/realloc on our shared memory.
