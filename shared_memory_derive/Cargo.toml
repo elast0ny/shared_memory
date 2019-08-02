@@ -16,6 +16,9 @@ categories = ["os::unix-apis","os::windows-apis","memory-management","concurrenc
 proc-macro = true
 
 [dependencies]
+syn = "0.15"
+quote = "0.6"
+proc-macro2 = "0.4"
 
 [dev-dependencies]
 trybuild = "1.0"
