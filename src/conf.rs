@@ -11,6 +11,7 @@ use enum_primitive::FromPrimitive;
 use std::io::{Write, Read};
 use std::ptr::null_mut;
 use std::mem::size_of;
+use std::fs::OpenOptions;
 
 //Changes the content of val to the next multiple of align returning the amount that was required to align
 fn align_value(val: &mut usize, align: u8) -> u8 {
@@ -47,6 +48,7 @@ struct EventHeader {
 ///Configuration used to describe a shared memory mapping before openning/creation
 pub struct SharedMemConf {
     owner: bool,
+    overwrite_existing_link: bool,
     link_path: Option<PathBuf>,
     wanted_os_path: Option<String>,
     size: usize,
@@ -163,6 +165,7 @@ impl SharedMemConf {
     pub fn new() -> SharedMemConf {
         SharedMemConf {
             owner: false,
+            overwrite_existing_link: false,
             link_path: None,
             wanted_os_path: None,
             size: 0,
@@ -193,6 +196,12 @@ impl SharedMemConf {
         self.add_lock_impl(lock_type, offset, length)?;
         Ok(self)
     }
+
+    ///Forces the creation of the link file regardless of if the file already exists
+    pub fn overwrite_link(mut self) {
+        self.overwrite_existing_link = true;
+    }
+
     ///Adds an event of specified type
     pub fn add_event(mut self, event_type: EventType) -> Result<SharedMemConf> {
         self.add_event_impl(event_type)?;
@@ -205,17 +214,28 @@ impl SharedMemConf {
             return Err(From::from("SharedMemConf.create() : Cannot create a mapping of size 0"));
         }
 
+        let mut open_options: OpenOptions = OpenOptions::new();
+        open_options.write(true);
+        if self.overwrite_existing_link {
+            open_options.truncate(true);
+        } else {
+            open_options.create_new(true);
+        }
+        
         //Create link file if required
         let mut cur_link: Option<File> = None;
         if let Some(ref file_path) = self.link_path {
-            if file_path.is_file() {
-                return Err(From::from("SharedMemConf.create() : Link file already exists"));
-            } else {
-                cur_link = Some(File::create(file_path)?);
-                self.owner = true;
-            }
+            match open_options.open(file_path) {
+                Ok(f) => {
+                    self.owner = true;
+                    cur_link = Some(f);
+                },
+                Err(e) => {
+                    return Err(From::from(format!("Failed creating link file : {}", e)));
+                },
+            };
         }
-
+        
         //Generate a random unique_id if not specified
         let unique_id: String = match self.wanted_os_path {
             Some(ref s) => s.clone(),
