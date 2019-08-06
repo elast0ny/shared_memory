@@ -62,7 +62,7 @@ use self::nix::sys::stat::{fstat, Mode};
 use self::nix::fcntl::OFlag;
 use self::nix::unistd::{close, ftruncate};
 
-use super::{std,
+use super::{
     LockType,
     GenericLock,
     LockImpl,

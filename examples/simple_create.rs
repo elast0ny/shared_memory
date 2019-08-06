@@ -1,12 +1,11 @@
 extern crate shared_memory;
 use shared_memory::*;
 
+#[derive(SharedMemCast)]
 struct SomeState {
     num_listenners: u32,
     message: [u8; 256],
 }
-//WARNING : Only do this if you know what you're doing.
-unsafe impl SharedMemCast for SomeState {}
 
 fn main() {
 
