@@ -1,14 +1,10 @@
 extern crate shared_memory;
-use shared_memory::{
-    SharedMemRaw,
-    ReadRaw,
-};
+use shared_memory::{ReadRaw, SharedMemRaw};
 use std::sync::atomic::*;
 
 //This example demonstrates how one can create a raw memory mapping with no bells and whistles
 
 fn main() {
-
     //Create a new raw shared mapping
     let my_shmem: SharedMemRaw = match SharedMemRaw::create("some_raw_map", 4096) {
         Ok(v) => v,
@@ -20,10 +16,12 @@ fn main() {
     };
 
     //Display some info
-    println!("Created raw map @ \"{}\"
+    println!(
+        "Created raw map @ \"{}\"
     Size : 0x{:x}",
-    my_shmem.get_path(),
-    my_shmem.get_size());
+        my_shmem.get_path(),
+        my_shmem.get_size()
+    );
 
     println!("Busy looping until first byte changes...");
 

@@ -1,7 +1,14 @@
-use super::*;
-use std::sync::atomic::{AtomicBool, Ordering};
+use ::cfg_if::*;
+use ::enum_primitive::*;
+
 use std::mem::size_of;
+use std::os::raw::c_void;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+
+use crate::Timeout;
+
+type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
 #[doc(hidden)]
 pub struct GenericEvent {
@@ -67,7 +74,6 @@ cfg_if! {
     }
 }
 
-
 ///All events implement this trait
 #[doc(hidden)]
 pub trait EventImpl {
@@ -102,15 +108,13 @@ pub trait EventWait {
 /* Cross platform Event Implementation */
 
 fn timeout_to_duration(timeout: Timeout) -> Duration {
-    Duration::from_millis(
-        match timeout {
-            Timeout::Infinite => !(0 as u64),
-            Timeout::Sec(t) => (t * 1000) as u64,
-            Timeout::Milli(t) => (t) as u64,
-            Timeout::Micro(t) => (t / 1000) as u64,
-            Timeout::Nano(t) => (t / 1000000) as u64,
-        }
-    )
+    Duration::from_millis(match timeout {
+        Timeout::Infinite => !(0 as u64),
+        Timeout::Sec(t) => (t * 1000) as u64,
+        Timeout::Milli(t) => (t) as u64,
+        Timeout::Micro(t) => (t / 1000) as u64,
+        Timeout::Nano(t) => (t / 1000000) as u64,
+    })
 }
 
 #[doc(hidden)]
@@ -121,13 +125,12 @@ impl EventImpl for AutoBusy {
     }
     ///Initializes the event
     fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<()> {
-
         //Nothing to do if we're not the creator
         if !create_new {
             return Ok(());
         }
 
-        let signal: &AtomicBool = unsafe {&mut (*(event_info.ptr as *mut AtomicBool))};
+        let signal: &AtomicBool = unsafe { &mut (*(event_info.ptr as *mut AtomicBool)) };
         signal.store(false, Ordering::Relaxed);
 
         Ok(())
@@ -138,14 +141,16 @@ impl EventImpl for AutoBusy {
     }
     ///This method should only return once the event is signaled
     fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
-
-        let signal: &AtomicBool = unsafe {&mut (*(event_ptr as *mut AtomicBool))};
+        let signal: &AtomicBool = unsafe { &mut (*(event_ptr as *mut AtomicBool)) };
 
         let timeout_len: Duration = match timeout {
             Timeout::Infinite => {
-                while !signal.compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed).is_ok() {}
-                return Ok(())
-            },
+                while !signal
+                    .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
+                {}
+                return Ok(());
+            }
             _ => timeout_to_duration(timeout),
         };
 
@@ -154,7 +159,10 @@ impl EventImpl for AutoBusy {
         let start_time: Instant = Instant::now();
 
         //Busy loop checking timeout every 5 iterations
-        while !signal.compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
+        while !signal
+            .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
             //num_attemps = num_attemps.wrapping_add(1);
             //if num_attemps%check_interval == 0 {
             if start_time.elapsed() >= timeout_len {
@@ -167,14 +175,14 @@ impl EventImpl for AutoBusy {
     }
     ///This method sets the event. This should never block
     fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
-        let signal: &AtomicBool = unsafe {&mut (*(event_ptr as *mut AtomicBool))};
+        let signal: &AtomicBool = unsafe { &mut (*(event_ptr as *mut AtomicBool)) };
 
         signal.store(
             match state {
                 EventState::Wait => false,
                 EventState::Signaled => true,
             },
-            Ordering::Relaxed
+            Ordering::Relaxed,
         );
 
         Ok(())
@@ -189,13 +197,12 @@ impl EventImpl for ManualBusy {
     }
     ///Initializes the event
     fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<()> {
-
         //Nothing to do if we're not the creator
         if !create_new {
             return Ok(());
         }
 
-        let signal: &AtomicBool = unsafe {&mut (*(event_info.ptr as *mut AtomicBool))};
+        let signal: &AtomicBool = unsafe { &mut (*(event_info.ptr as *mut AtomicBool)) };
         signal.store(false, Ordering::Relaxed);
 
         Ok(())
@@ -206,14 +213,13 @@ impl EventImpl for ManualBusy {
     }
     ///This method should only return once the event is signaled
     fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
-
-        let signal: &AtomicBool = unsafe {&mut (*(event_ptr as *mut AtomicBool))};
+        let signal: &AtomicBool = unsafe { &mut (*(event_ptr as *mut AtomicBool)) };
 
         let timeout_len: Duration = match timeout {
             Timeout::Infinite => {
                 while !signal.load(Ordering::Relaxed) {}
-                return Ok(())
-            },
+                return Ok(());
+            }
             _ => timeout_to_duration(timeout),
         };
 
@@ -234,14 +240,14 @@ impl EventImpl for ManualBusy {
     }
     ///This method sets the event. This should never block
     fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
-        let signal: &AtomicBool = unsafe {&mut (*(event_ptr as *mut AtomicBool))};
+        let signal: &AtomicBool = unsafe { &mut (*(event_ptr as *mut AtomicBool)) };
 
         signal.store(
             match state {
                 EventState::Wait => false,
                 EventState::Signaled => true,
             },
-            Ordering::Relaxed
+            Ordering::Relaxed,
         );
 
         Ok(())

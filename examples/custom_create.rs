@@ -21,7 +21,6 @@ fn ind(ev_type: MyEvents) -> usize {
 }
 
 fn main() -> Result<()> {
-
     //Create a custom configuration for our mapping
     let mut my_conf = SharedMemConf::new()
         .set_link_path("shared_mem.link")

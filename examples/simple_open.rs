@@ -6,14 +6,13 @@ use std::str::from_utf8_unchecked;
 fn from_ut8f_to_null(bytes: &[u8], max_len: usize) -> &str {
     for i in 0..max_len {
         if bytes[i] == 0 {
-            return unsafe {from_utf8_unchecked(&bytes[0..i])};
+            return unsafe { from_utf8_unchecked(&bytes[0..i]) };
         }
     }
     panic!("Couldnt find null terminator.");
 }
 
 fn main() {
-
     //Open an existing SharedMem
     let mut my_shmem = match SharedMem::open_linked("shared_mem.link") {
         Ok(v) => v,
@@ -35,8 +34,8 @@ fn main() {
     //Acquire read lock
     {
         let read_buf = match my_shmem.rlock_as_slice::<u8>(0) {
-           Ok(v) => v,
-           Err(_) => panic!("Failed to acquire read lock !"),
+            Ok(v) => v,
+            Err(_) => panic!("Failed to acquire read lock !"),
         };
 
         print!("Shared buffer = \"");

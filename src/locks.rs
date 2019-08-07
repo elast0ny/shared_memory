@@ -5,10 +5,13 @@
 //  2. Go into your OS specific OS.rs and create a new pub struct
 //  3. Implement the SharedMemLockImpl trait for your new struct
 //  4. Make sure that your os_impl::open() and os_impl::create() initialize the lock properly in non-raw mode
+use ::enum_primitive::*;
 
-use super::*;
 use std::ops::{Deref, DerefMut};
 use std::os::raw::c_void;
+
+use crate::SharedMemCast;
+type Result<T> = std::result::Result<T, Box<std::error::Error>>;
 
 #[doc(hidden)]
 pub struct GenericLock {
@@ -70,7 +73,10 @@ pub trait WriteLockable {
     ///Returns a read/write access to a &mut [T] on the shared memory
     ///
     ///The caller must ensure that the index given to this function is valid
-    fn wlock_as_slice<D: SharedMemCast>(&mut self, lock_index: usize) -> Result<WriteLockGuardSlice<D>>;
+    fn wlock_as_slice<D: SharedMemCast>(
+        &mut self,
+        lock_index: usize,
+    ) -> Result<WriteLockGuardSlice<D>>;
 }
 ///Provides raw unsafe pointer access
 pub trait ReadRaw {
@@ -92,9 +98,13 @@ pub struct ReadLockGuard<'a, T: 'a> {
     lock_fn: &'a LockImpl,
     lock_data: &'a mut c_void,
 }
-impl<'a, T:'a> ReadLockGuard<'a, T> {
+impl<'a, T: 'a> ReadLockGuard<'a, T> {
     #[doc(hidden)]
-    pub fn lock(data_ptr: &'a T, interface: &'a LockImpl, lock_ptr: &'a mut c_void) -> ReadLockGuard<'a, T> {
+    pub fn lock(
+        data_ptr: &'a T,
+        interface: &'a LockImpl,
+        lock_ptr: &'a mut c_void,
+    ) -> ReadLockGuard<'a, T> {
         //Acquire the read lock
         interface.rlock(lock_ptr).unwrap();
 
@@ -112,7 +122,9 @@ impl<'a, T: 'a> Drop for ReadLockGuard<'a, T> {
 }
 impl<'a, T> Deref for ReadLockGuard<'a, T> {
     type Target = &'a T;
-    fn deref(&self) -> &Self::Target { &self.data }
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
 }
 
 ///RAII structure used to release the read access of a lock when dropped.
@@ -121,9 +133,13 @@ pub struct ReadLockGuardSlice<'a, T: 'a> {
     lock_fn: &'a LockImpl,
     lock_data: &'a mut c_void,
 }
-impl<'a, T:'a> ReadLockGuardSlice<'a, T> {
+impl<'a, T: 'a> ReadLockGuardSlice<'a, T> {
     #[doc(hidden)]
-    pub fn lock(data_in: &'a [T], lock_fn_in: &'a LockImpl, lock_data_in: &'a mut c_void) -> ReadLockGuardSlice<'a, T> {
+    pub fn lock(
+        data_in: &'a [T],
+        lock_fn_in: &'a LockImpl,
+        lock_data_in: &'a mut c_void,
+    ) -> ReadLockGuardSlice<'a, T> {
         //Acquire the read lock
         lock_fn_in.rlock(lock_data_in).unwrap();
 
@@ -141,7 +157,9 @@ impl<'a, T: 'a> Drop for ReadLockGuardSlice<'a, T> {
 }
 impl<'a, T> Deref for ReadLockGuardSlice<'a, T> {
     type Target = &'a [T];
-    fn deref(&self) -> &Self::Target { &self.data }
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
 }
 
 ///RAII structure used to release the write access of a lock when dropped.
@@ -150,9 +168,13 @@ pub struct WriteLockGuard<'a, T: 'a> {
     lock_fn: &'a LockImpl,
     lock_data: &'a mut c_void,
 }
-impl<'a, T:'a> WriteLockGuard<'a, T> {
+impl<'a, T: 'a> WriteLockGuard<'a, T> {
     #[doc(hidden)]
-    pub fn lock(data_ptr: &'a mut T, interface: &'a LockImpl, lock_ptr: &'a mut c_void) -> WriteLockGuard<'a, T> {
+    pub fn lock(
+        data_ptr: &'a mut T,
+        interface: &'a LockImpl,
+        lock_ptr: &'a mut c_void,
+    ) -> WriteLockGuard<'a, T> {
         //Acquire the write lock
         interface.wlock(lock_ptr).unwrap();
 
@@ -170,7 +192,9 @@ impl<'a, T: 'a> Drop for WriteLockGuard<'a, T> {
 }
 impl<'a, T> Deref for WriteLockGuard<'a, T> {
     type Target = &'a mut T;
-    fn deref(&self) -> &Self::Target { &self.data }
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
 }
 impl<'a, T> DerefMut for WriteLockGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut &'a mut T {
@@ -184,9 +208,13 @@ pub struct WriteLockGuardSlice<'a, T: 'a> {
     lock_fn: &'a LockImpl,
     lock_data: &'a mut c_void,
 }
-impl<'a, T:'a> WriteLockGuardSlice<'a, T> {
+impl<'a, T: 'a> WriteLockGuardSlice<'a, T> {
     #[doc(hidden)]
-    pub fn lock(data_ptr: &'a mut [T], interface: &'a LockImpl, lock_ptr: &'a mut c_void) -> WriteLockGuardSlice<'a, T> {
+    pub fn lock(
+        data_ptr: &'a mut [T],
+        interface: &'a LockImpl,
+        lock_ptr: &'a mut c_void,
+    ) -> WriteLockGuardSlice<'a, T> {
         //Acquire the write lock
         interface.wlock(lock_ptr).unwrap();
 
@@ -204,7 +232,9 @@ impl<'a, T: 'a> Drop for WriteLockGuardSlice<'a, T> {
 }
 impl<'a, T> Deref for WriteLockGuardSlice<'a, T> {
     type Target = &'a mut [T];
-    fn deref(&self) -> &Self::Target { &self.data }
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
 }
 impl<'a, T> DerefMut for WriteLockGuardSlice<'a, T> {
     fn deref_mut(&mut self) -> &mut &'a mut [T] {

@@ -19,7 +19,6 @@ fn ind(ev_type: MyEvents) -> usize {
 }
 
 fn main() {
-
     //Open an existing shared SharedMem
     let mut my_shmem = match SharedMem::open_linked("shared_mem.link") {
         Ok(v) => v,
@@ -37,7 +36,11 @@ fn main() {
     }
     //Make sure mapping contains all of our events
     if expected_num_events != my_shmem.num_events() {
-        println!("We expected {} events but {} are in the shared memory...", expected_num_events, my_shmem.num_events());
+        println!(
+            "We expected {} events but {} are in the shared memory...",
+            expected_num_events,
+            my_shmem.num_events()
+        );
         return;
     }
 
@@ -46,7 +49,7 @@ fn main() {
     //Simulate some signaling
     println!("Signaling peer...");
     match my_shmem.set(ind(MyEvents::MyEvt), EventState::Signaled) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => {
             println!("Failed to signal peer !");
             println!("{}", e);
@@ -67,7 +70,7 @@ fn main() {
 
     println!("Signaling peer...");
     match my_shmem.set(ind(MyEvents::MyEvt), EventState::Signaled) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => {
             println!("Failed to signal peer !");
             println!("{}", e);
@@ -77,7 +80,7 @@ fn main() {
     println!("Reseting peer event to wait in 1 second");
     std::thread::sleep(std::time::Duration::from_secs(1));
     match my_shmem.set(ind(MyEvents::MyEvt), EventState::Wait) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => {
             println!("Failed to signal peer !");
             println!("{}", e);

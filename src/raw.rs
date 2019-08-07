@@ -10,25 +10,18 @@ pub struct SharedMemRaw {
     os_data: os_impl::MapData,
 }
 impl SharedMemRaw {
-
     ///Creates a raw mapping
     pub fn create(unique_id: &str, size: usize) -> Result<SharedMemRaw> {
-
         let os_map: os_impl::MapData = os_impl::create_mapping(&unique_id, size)?;
 
-        Ok(SharedMemRaw {
-            os_data: os_map,
-        })
+        Ok(SharedMemRaw { os_data: os_map })
     }
     ///Opens a raw mapping
     pub fn open(unique_id: &str) -> Result<SharedMemRaw> {
-
         //Attempt to open the mapping
         let os_map = os_impl::open_mapping(&unique_id)?;
 
-        Ok(SharedMemRaw {
-            os_data: os_map,
-        })
+        Ok(SharedMemRaw { os_data: os_map })
     }
     #[inline]
     ///Returns the size of the raw mapping
@@ -50,7 +43,7 @@ impl SharedMemRaw {
 impl ReadRaw for SharedMemRaw {
     ///Returns a read only reference to D casted onto the shared memory
     unsafe fn get_raw<D: SharedMemCast>(&self) -> &D {
-        return &(*(self.os_data.map_ptr as *const D))
+        return &(*(self.os_data.map_ptr as *const D));
     }
 
     ///Returns a read only reference to a slice of D casted onto the shared memory
@@ -58,9 +51,12 @@ impl ReadRaw for SharedMemRaw {
         //Make sure that we can cast our memory to the slice
         let item_size = std::mem::size_of::<D>();
         if item_size > self.os_data.map_size {
-            panic!("Tried to map type of {} bytes to a lock holding only {} bytes", item_size,  self.os_data.map_size);
+            panic!(
+                "Tried to map type of {} bytes to a lock holding only {} bytes",
+                item_size, self.os_data.map_size
+            );
         }
-        let num_items: usize =  self.os_data.map_size / item_size;
+        let num_items: usize = self.os_data.map_size / item_size;
 
         return slice::from_raw_parts(self.os_data.map_ptr as *const D, num_items);
     }
@@ -68,16 +64,19 @@ impl ReadRaw for SharedMemRaw {
 impl WriteRaw for SharedMemRaw {
     ///Returns a mutable reference to D casted onto the shared memory
     unsafe fn get_raw_mut<D: SharedMemCast>(&mut self) -> &mut D {
-        return &mut (*(self.os_data.map_ptr as *mut D))
+        return &mut (*(self.os_data.map_ptr as *mut D));
     }
     ///Returns a mutable reference to a slice of D casted onto the shared memory
-    unsafe fn get_raw_slice_mut<D: SharedMemCast>(&mut self) -> &mut[D] {
+    unsafe fn get_raw_slice_mut<D: SharedMemCast>(&mut self) -> &mut [D] {
         //Make sure that we can cast our memory to the slice
         let item_size = std::mem::size_of::<D>();
-        if item_size >  self.os_data.map_size {
-            panic!("Tried to map type of {} bytes to a lock holding only {} bytes", item_size,  self.os_data.map_size);
+        if item_size > self.os_data.map_size {
+            panic!(
+                "Tried to map type of {} bytes to a lock holding only {} bytes",
+                item_size, self.os_data.map_size
+            );
         }
-        let num_items: usize =  self.os_data.map_size / item_size;
+        let num_items: usize = self.os_data.map_size / item_size;
 
         return slice::from_raw_parts_mut(self.os_data.map_ptr as *mut D, num_items);
     }

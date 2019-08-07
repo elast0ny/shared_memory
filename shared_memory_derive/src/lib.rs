@@ -6,19 +6,11 @@
 
 extern crate proc_macro;
 
-use proc_macro2::{TokenStream, Span};
+use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
 use syn::{
-    parse_macro_input,
-    parse_quote,
-    DeriveInput,
-    GenericParam,
-    Generics,
-    Data,
-    Fields,
-    Ident,
-    Type,
-    spanned::Spanned,
+    parse_macro_input, parse_quote, spanned::Spanned, Data, DeriveInput, Fields, GenericParam,
+    Generics, Ident, Type,
 };
 
 #[proc_macro_derive(SharedMemCast)]
@@ -82,7 +74,9 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 fn add_generic_bounds(generics: &mut Generics) {
     for param in &mut generics.params {
         if let GenericParam::Type(type_param) = param {
-            type_param.bounds.push(parse_quote!(shared_memory::SharedMemCast));
+            type_param
+                .bounds
+                .push(parse_quote!(shared_memory::SharedMemCast));
         }
     }
 }
@@ -93,28 +87,37 @@ fn field_type_assertions(name: &Ident, data: &Data) -> TokenStream {
         Data::Struct(data) => match &data.fields {
             Fields::Named(fields) if !fields.named.is_empty() => {
                 type_assertions_from_types(fields.named.iter().map(|f| &f.ty))
-            },
+            }
             Fields::Unnamed(fields) if !fields.unnamed.is_empty() => {
                 type_assertions_from_types(fields.unnamed.iter().map(|f| &f.ty))
-            },
+            }
             _ => {
                 // Unit structs have no fields to assert anything for
-                error(name.span(), "Zero-sized types cannot be casted from shared memory")
-            },
+                error(
+                    name.span(),
+                    "Zero-sized types cannot be casted from shared memory",
+                )
+            }
         },
         Data::Enum(data) => {
             if data.variants.is_empty() {
-                return error(name.span(), "Empty enums types cannot be casted from shared memory");
+                return error(
+                    name.span(),
+                    "Empty enums types cannot be casted from shared memory",
+                );
             }
 
             type_assertions_from_types(
-                data.variants.iter()
-                    .flat_map(|var| var.fields.iter().map(|f| &f.ty))
+                data.variants
+                    .iter()
+                    .flat_map(|var| var.fields.iter().map(|f| &f.ty)),
             )
-        },
+        }
         //TODO: Maybe this could be added in the future if anyone needs it?
-        Data::Union(data) => error(data.union_token.span(),
-            "Untagged unions are not supported by SharedMemCast"),
+        Data::Union(data) => error(
+            data.union_token.span(),
+            "Untagged unions are not supported by SharedMemCast",
+        ),
     }
 }
 
@@ -125,7 +128,7 @@ fn field_type_assertions(name: &Ident, data: &Data) -> TokenStream {
 /// We take some care to use the span of each Type as the span of the corresponding line of
 /// generated code. This way if one of the types does not implement SharedMemCast, the compiler's
 /// error message underlines the location of that type in the user's code.
-fn type_assertions_from_types<'a, I: Iterator<Item=&'a Type>>(types: I) -> TokenStream {
+fn type_assertions_from_types<'a, I: Iterator<Item = &'a Type>>(types: I) -> TokenStream {
     let type_assertions = types.map(|ty| {
         quote_spanned! {ty.span() =>
             let _: shared_memory::AssertIsSharedMemCast<#ty>;

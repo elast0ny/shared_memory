@@ -8,7 +8,6 @@ struct SomeState {
 }
 
 fn main() {
-
     //Create a simple shared memory mapping with 1 lock controlling the whole mapping
     let mut my_shmem = match SharedMem::create_linked("shared_mem.link", LockType::Mutex, 4096) {
         Ok(m) => m,
@@ -41,7 +40,6 @@ fn main() {
 
     //Loop until our memory has changed
     loop {
-
         //Acquire read lock
         let shared_state = match my_shmem.rlock::<SomeState>(0) {
             Ok(v) => v,

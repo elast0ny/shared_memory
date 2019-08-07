@@ -1,12 +1,8 @@
 extern crate shared_memory;
-use shared_memory::{
-    SharedMemRaw,
-    WriteRaw,
-};
+use shared_memory::{SharedMemRaw, WriteRaw};
 use std::sync::atomic::*;
 
 fn main() {
-
     //Open an existing raw SharedMem
     let mut my_shmem: SharedMemRaw = match SharedMemRaw::open("some_raw_map") {
         Ok(v) => v,
@@ -17,10 +13,12 @@ fn main() {
         }
     };
 
-    println!("Openned raw map @ \"{}\"
+    println!(
+        "Openned raw map @ \"{}\"
     Size : 0x{:x}",
-    my_shmem.get_path(),
-    my_shmem.get_size());
+        my_shmem.get_path(),
+        my_shmem.get_size()
+    );
 
     println!("Swapping first byte to 0x1 !");
 
