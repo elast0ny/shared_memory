@@ -27,6 +27,7 @@ exclude = [
 enum_primitive = "0.1"
 
 [dependencies]
+quick-error = "1.2"
 cfg-if = "0.1"
 enum_primitive = "0.1"
 log = "0.4"

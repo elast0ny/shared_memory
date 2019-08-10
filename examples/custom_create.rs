@@ -5,8 +5,6 @@ use shared_memory::*;
 extern crate enum_primitive;
 pub use enum_primitive::FromPrimitive;
 
-type Result<T> = std::result::Result<T, Box<std::error::Error>>;
-
 enum_from_primitive! {
     enum MyEvents {
         MyEvt = 0,
@@ -20,9 +18,9 @@ fn ind(ev_type: MyEvents) -> usize {
     ev_type as usize
 }
 
-fn main() -> Result<()> {
+fn main() -> Result<(), SharedMemError> {
     //Create a custom configuration for our mapping
-    let mut my_conf = SharedMemConf::new()
+    let mut my_conf = SharedMemConf::default()
         .set_link_path("shared_mem.link")
         .set_os_path("test_mapping")
         .set_size(4096);

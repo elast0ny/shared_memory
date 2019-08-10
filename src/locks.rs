@@ -10,8 +10,7 @@ use ::enum_primitive::*;
 use std::ops::{Deref, DerefMut};
 use std::os::raw::c_void;
 
-use crate::SharedMemCast;
-type Result<T> = std::result::Result<T, Box<std::error::Error>>;
+use crate::{SharedMemCast, SharedMemError};
 
 #[doc(hidden)]
 pub struct GenericLock {
@@ -40,13 +39,13 @@ pub trait LockImpl {
     ///Returns the size of the lock structure that will live in shared memory
     fn size_of(&self) -> usize;
     ///Initializes the lock
-    fn init(&self, lock_info: &mut GenericLock, create_new: bool) -> Result<()>;
+    fn init(&self, lock_info: &mut GenericLock, create_new: bool) -> Result<(), SharedMemError>;
     ///De-initializes the lock
     fn destroy(&self, lock_info: &mut GenericLock);
     ///This method should only return once we have safe read access
-    fn rlock(&self, lock_ptr: *mut c_void) -> Result<()>;
+    fn rlock(&self, lock_ptr: *mut c_void) -> Result<(), SharedMemError>;
     ///This method should only return once we have safe write access
-    fn wlock(&self, lock_ptr: *mut c_void) -> Result<()>;
+    fn wlock(&self, lock_ptr: *mut c_void) -> Result<(), SharedMemError>;
     ///This method is automatically called when a read lock guards is dropped
     fn runlock(&self, lock_ptr: *mut c_void) -> ();
     ///This method is automatically called when a read lock guards is dropped
@@ -58,25 +57,34 @@ pub trait ReadLockable {
     ///Returns a read lock to the shared memory
     ///
     ///The caller must ensure that the index given to this function is valid
-    fn rlock<D: SharedMemCast>(&self, lock_index: usize) -> Result<ReadLockGuard<D>>;
+    fn rlock<D: SharedMemCast>(
+        &self,
+        lock_index: usize,
+    ) -> Result<ReadLockGuard<D>, SharedMemError>;
     ///Returns a read lock to the shared memory as a slice
     ///
     ///The caller must ensure that the index given to this function is valid
-    fn rlock_as_slice<D: SharedMemCast>(&self, lock_index: usize) -> Result<ReadLockGuardSlice<D>>;
+    fn rlock_as_slice<D: SharedMemCast>(
+        &self,
+        lock_index: usize,
+    ) -> Result<ReadLockGuardSlice<D>, SharedMemError>;
 }
 ///Provides wlock/wlock_as_slice functionnalities
 pub trait WriteLockable {
     ///Returns a read/write lock to the shared memory
     ///
     ///The caller must ensure that the index given to this function is valid
-    fn wlock<D: SharedMemCast>(&mut self, lock_index: usize) -> Result<WriteLockGuard<D>>;
+    fn wlock<D: SharedMemCast>(
+        &mut self,
+        lock_index: usize,
+    ) -> Result<WriteLockGuard<D>, SharedMemError>;
     ///Returns a read/write access to a &mut [T] on the shared memory
     ///
     ///The caller must ensure that the index given to this function is valid
     fn wlock_as_slice<D: SharedMemCast>(
         &mut self,
         lock_index: usize,
-    ) -> Result<WriteLockGuardSlice<D>>;
+    ) -> Result<WriteLockGuardSlice<D>, SharedMemError>;
 }
 ///Provides raw unsafe pointer access
 pub trait ReadRaw {
@@ -116,7 +124,7 @@ impl<'a, T: 'a> ReadLockGuard<'a, T> {
     }
 }
 impl<'a, T: 'a> Drop for ReadLockGuard<'a, T> {
-    fn drop(&mut self) -> () {
+    fn drop(&mut self) {
         self.lock_fn.runlock(self.lock_data);
     }
 }
@@ -151,7 +159,7 @@ impl<'a, T: 'a> ReadLockGuardSlice<'a, T> {
     }
 }
 impl<'a, T: 'a> Drop for ReadLockGuardSlice<'a, T> {
-    fn drop(&mut self) -> () {
+    fn drop(&mut self) {
         self.lock_fn.runlock(self.lock_data);
     }
 }
@@ -186,7 +194,7 @@ impl<'a, T: 'a> WriteLockGuard<'a, T> {
     }
 }
 impl<'a, T: 'a> Drop for WriteLockGuard<'a, T> {
-    fn drop(&mut self) -> () {
+    fn drop(&mut self) {
         self.lock_fn.wunlock(self.lock_data);
     }
 }
@@ -226,7 +234,7 @@ impl<'a, T: 'a> WriteLockGuardSlice<'a, T> {
     }
 }
 impl<'a, T: 'a> Drop for WriteLockGuardSlice<'a, T> {
-    fn drop(&mut self) -> () {
+    fn drop(&mut self) {
         self.lock_fn.wunlock(self.lock_data);
     }
 }
