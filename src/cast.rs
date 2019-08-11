@@ -63,18 +63,25 @@ pub unsafe trait SharedMemCast {
 pub struct AssertIsSharedMemCast<T: SharedMemCast + ?Sized> { _field: std::marker::PhantomData<T> }
 
 unsafe impl SharedMemCast for bool {}
+
 unsafe impl SharedMemCast for char {}
 unsafe impl SharedMemCast for str {}
+
 unsafe impl SharedMemCast for i8 {}
 unsafe impl SharedMemCast for i16 {}
 unsafe impl SharedMemCast for i32 {}
-unsafe impl SharedMemCast for u8 {}
 unsafe impl SharedMemCast for i64 {}
+unsafe impl SharedMemCast for i128 {}
+
+unsafe impl SharedMemCast for u8 {}
 unsafe impl SharedMemCast for u16 {}
-unsafe impl SharedMemCast for u64 {}
-unsafe impl SharedMemCast for isize {}
 unsafe impl SharedMemCast for u32 {}
+unsafe impl SharedMemCast for u64 {}
+unsafe impl SharedMemCast for u128 {}
+
+unsafe impl SharedMemCast for isize {}
 unsafe impl SharedMemCast for usize {}
+
 unsafe impl SharedMemCast for f32 {}
 unsafe impl SharedMemCast for f64 {}
 
@@ -82,6 +89,9 @@ unsafe impl SharedMemCast for AtomicBool {}
 unsafe impl SharedMemCast for AtomicIsize {}
 unsafe impl<T> SharedMemCast for AtomicPtr<T> {}
 unsafe impl SharedMemCast for AtomicUsize {}
+
+unsafe impl<T: SharedMemCast> SharedMemCast for Option<T> {}
+unsafe impl<T: SharedMemCast, E: SharedMemCast> SharedMemCast for Result<T, E> {}
 
 unsafe impl<T: SharedMemCast> SharedMemCast for [T] {}
 
@@ -99,3 +109,36 @@ array_impl!(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 2
     23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384,
     32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608, 16777216, 33554432,
     67108864, 134217728, 268435456, 536870912, 1073741824, 2147483648);
+
+macro_rules! tuple_impl {
+    ($($typ:ident),+) => {
+        unsafe impl<$($typ: SharedMemCast),+> SharedMemCast for ($($typ),+) {}
+    };
+}
+
+// Implementations for each size of tuple up to 26 fields
+tuple_impl!(A, B);
+tuple_impl!(A, B, C);
+tuple_impl!(A, B, C, D);
+tuple_impl!(A, B, C, D, E);
+tuple_impl!(A, B, C, D, E, F);
+tuple_impl!(A, B, C, D, E, F, G);
+tuple_impl!(A, B, C, D, E, F, G, H);
+tuple_impl!(A, B, C, D, E, F, G, H, I);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y);
+tuple_impl!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z);
