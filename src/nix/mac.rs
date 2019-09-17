@@ -1,4 +1,4 @@
-use super::libc::{
+use ::libc::{
     pthread_mutex_t,
     timespec,
     clock_gettime,
@@ -10,7 +10,7 @@ use super::libc::{
     c_int,
 };
 
-use super::std::ptr::{null_mut};
+use std::ptr::{null_mut};
 
 pub fn pthread_mutex_timedlock(lock: *mut pthread_mutex_t, abstime: &timespec) -> c_int {
 
