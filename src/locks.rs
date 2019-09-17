@@ -20,7 +20,7 @@ pub struct GenericLock {
     pub length: usize,
     pub data_ptr: *mut c_void,
     pub lock_ptr: *mut c_void,
-    pub interface: &'static LockImpl,
+    pub interface: &'static dyn LockImpl,
 }
 
 enum_from_primitive! {
@@ -103,14 +103,14 @@ pub trait WriteRaw {
 ///RAII structure used to release the read access of a lock when dropped.
 pub struct ReadLockGuard<'a, T: 'a> {
     data: &'a T,
-    lock_fn: &'a LockImpl,
+    lock_fn: &'a dyn LockImpl,
     lock_data: &'a mut c_void,
 }
 impl<'a, T: 'a> ReadLockGuard<'a, T> {
     #[doc(hidden)]
     pub fn lock(
         data_ptr: &'a T,
-        interface: &'a LockImpl,
+        interface: &'a dyn LockImpl,
         lock_ptr: &'a mut c_void,
     ) -> ReadLockGuard<'a, T> {
         //Acquire the read lock
@@ -138,14 +138,14 @@ impl<'a, T> Deref for ReadLockGuard<'a, T> {
 ///RAII structure used to release the read access of a lock when dropped.
 pub struct ReadLockGuardSlice<'a, T: 'a> {
     data: &'a [T],
-    lock_fn: &'a LockImpl,
+    lock_fn: &'a dyn LockImpl,
     lock_data: &'a mut c_void,
 }
 impl<'a, T: 'a> ReadLockGuardSlice<'a, T> {
     #[doc(hidden)]
     pub fn lock(
         data_in: &'a [T],
-        lock_fn_in: &'a LockImpl,
+        lock_fn_in: &'a dyn LockImpl,
         lock_data_in: &'a mut c_void,
     ) -> ReadLockGuardSlice<'a, T> {
         //Acquire the read lock
@@ -173,14 +173,14 @@ impl<'a, T> Deref for ReadLockGuardSlice<'a, T> {
 ///RAII structure used to release the write access of a lock when dropped.
 pub struct WriteLockGuard<'a, T: 'a> {
     data: &'a mut T,
-    lock_fn: &'a LockImpl,
+    lock_fn: &'a dyn LockImpl,
     lock_data: &'a mut c_void,
 }
 impl<'a, T: 'a> WriteLockGuard<'a, T> {
     #[doc(hidden)]
     pub fn lock(
         data_ptr: &'a mut T,
-        interface: &'a LockImpl,
+        interface: &'a dyn LockImpl,
         lock_ptr: &'a mut c_void,
     ) -> WriteLockGuard<'a, T> {
         //Acquire the write lock
@@ -213,14 +213,14 @@ impl<'a, T> DerefMut for WriteLockGuard<'a, T> {
 ///RAII structure used to release the write access of a lock when dropped.
 pub struct WriteLockGuardSlice<'a, T: 'a> {
     data: &'a mut [T],
-    lock_fn: &'a LockImpl,
+    lock_fn: &'a dyn LockImpl,
     lock_data: &'a mut c_void,
 }
 impl<'a, T: 'a> WriteLockGuardSlice<'a, T> {
     #[doc(hidden)]
     pub fn lock(
         data_ptr: &'a mut [T],
-        interface: &'a LockImpl,
+        interface: &'a dyn LockImpl,
         lock_ptr: &'a mut c_void,
     ) -> WriteLockGuardSlice<'a, T> {
         //Acquire the write lock
