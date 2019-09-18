@@ -195,7 +195,7 @@ pub fn open_mapping(unique_id: &str) -> Result<MapData, SharedMemError> {
 }
 
 //This functions exports our implementation for each lock type
-pub fn lockimpl_from_type(lock_type: LockType) -> &'static LockImpl {
+pub fn lockimpl_from_type(lock_type: LockType) -> &'static dyn LockImpl {
     match lock_type {
         LockType::Mutex => &Mutex{},
         LockType::RwLock => unimplemented!("shared_memory does not have a RwLock implementation for Windows..."),
@@ -203,7 +203,7 @@ pub fn lockimpl_from_type(lock_type: LockType) -> &'static LockImpl {
 }
 
 //This functions exports our implementation for each event type
-pub fn eventimpl_from_type(event_type: EventType) -> &'static EventImpl {
+pub fn eventimpl_from_type(event_type: EventType) -> &'static dyn EventImpl {
     match event_type {
         EventType::AutoBusy => &AutoBusy{},
         EventType::ManualBusy => &ManualBusy{},

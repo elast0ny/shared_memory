@@ -12,7 +12,7 @@ use crate::{SharedMemError, Timeout};
 pub struct GenericEvent {
     pub uid: u8,
     pub ptr: *mut c_void,
-    pub interface: &'static EventImpl,
+    pub interface: &'static dyn EventImpl,
 }
 impl Drop for GenericEvent {
     fn drop(&mut self) {
