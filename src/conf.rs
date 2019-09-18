@@ -221,7 +221,10 @@ impl SharedMemConf {
                     cur_link = Some(f);
                 }
                 Err(e) => {
-                    return Err(SharedMemError::LinkCreateFailed(e));
+                    return Err(match e.kind() {
+                        std::io::ErrorKind::AlreadyExists => SharedMemError::LinkExists,
+                        _ => SharedMemError::LinkCreateFailed(e),
+                    });
                 }
             };
         }

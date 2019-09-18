@@ -153,6 +153,11 @@ impl SharedMem {
     pub fn get_ptr(&self) -> *mut c_void {
         self.user_ptr
     }
+
+    #[inline]
+    pub fn is_owner(&self) -> bool {
+        self.conf.is_owner()
+    }
 }
 impl Drop for SharedMem {
     ///Deletes the SharedMemConf artifacts

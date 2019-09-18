@@ -25,6 +25,9 @@ quick_error! {
             display(x) -> ("{} : {}", x.description(), err)
             cause(err)
         }
+        LinkExists {
+            description("Shared memory link already exists")
+        }
         LinkOpenFailed(err: std::io::Error) {
             description("Openning the link file failed")
             display(x) -> ("{} : {}", x.description(), err)
