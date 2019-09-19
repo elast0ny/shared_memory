@@ -49,8 +49,7 @@ fn slave(mut shmem: SharedMem) -> Result<(), SharedMemError> {
     Ok(())
 }
 
-fn master(mut shmem: SharedMem) -> Result<(), SharedMemError>  {
-    
+fn master(mut shmem: SharedMem) -> Result<(), SharedMemError> {
     println!("[M] Waiting for slave to send us a signal");
     shmem.wait(MASTER_EVT_ID, Timeout::Sec(5))?;
     println!("[M]\t Got Signal !");

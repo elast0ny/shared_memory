@@ -15,7 +15,7 @@ For usage examples, see code located in [examples/](examples/) :
 
   | Examples | Description |
   |----------|-------------|
-  |[simple](examples/simple.rs)|Basic use of the library when all you need is memory protected by one lock|
+  |[basic](examples/basic.rs)|Basic use of the library when all you need is memory protected by one lock|
   |[custom](examples/custom.rs)| Shows the more advanced usage of the crate with configs and events |
   |[raw](examples/raw.rs)| Create/Open raw mappings that are not managed by this crate |
 
