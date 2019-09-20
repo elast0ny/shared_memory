@@ -1,0 +1,25 @@
+[package]
+name = "shared_memory_derive"
+description = "Support crate that provides macros for the shared_memory crate."
+version = "0.10.0" # should be synced with shared_memory crate
+authors = ["ElasT0ny <elast0ny00@gmail.com>", "Sunjay Varma <varma.sunjay@gmail.com>"]
+license = "MIT OR Apache-2.0"
+edition = "2018"
+
+#Extra fields for crates.io
+readme = "README.md"
+repository  = "https://github.com/elast0ny/shared_memory-rs"
+keywords = ["shmem", "shared", "memory", "inter-process", "process"]
+categories = ["os::unix-apis","os::windows-apis","memory-management","concurrency","asynchronous"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = "0.15"
+quote = "0.6"
+proc-macro2 = "0.4"
+
+[dev-dependencies]
+trybuild = "1.0"
+shared_memory = { version = "0.10.0", path = ".." }

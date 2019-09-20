@@ -1,23 +1,21 @@
-extern crate winapi;
-extern crate rand;
-use self::rand::Rng;
+use ::rand::Rng;
 
-use self::winapi::shared::ntdef::{NULL};
-use self::winapi::shared::minwindef::{FALSE};
-use self::winapi::shared::winerror::*;
-use self::winapi::um::winbase::{
+use ::winapi::shared::ntdef::{NULL};
+use ::winapi::shared::minwindef::{FALSE};
+use ::winapi::shared::winerror::*;
+use ::winapi::um::winbase::{
     CreateFileMappingA,
     OpenFileMappingA,
     INFINITE,
     WAIT_OBJECT_0,
     OpenMutexA,
 };
-use self::winapi::um::winnt::*;
-use self::winapi::um::handleapi::*;
-use self::winapi::um::memoryapi::*;
-use self::winapi::um::errhandlingapi::*;
+use ::winapi::um::winnt::*;
+use ::winapi::um::handleapi::*;
+use ::winapi::um::memoryapi::*;
+use ::winapi::um::errhandlingapi::*;
 
-use self::winapi::um::synchapi::{
+use ::winapi::um::synchapi::{
     CreateMutexA,
     //OpenMutexA, //This is in winbase ??
     WaitForSingleObject,
@@ -30,7 +28,8 @@ use self::winapi::um::synchapi::{
     ResetEvent,
 };
 
-use super::{
+use crate::{
+    SharedMemError,
     LockType,
     GenericLock,
     LockImpl,
@@ -41,7 +40,6 @@ use super::{
     GenericEvent,
     AutoBusy,
     ManualBusy,
-    Result,
 };
 
 use std::mem::size_of;
@@ -79,7 +77,7 @@ impl Drop for MapData {
 }
 
 //Creates a mapping specified by the uid and size
-pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData> {
+pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, SharedMemError> {
 
     let mut new_map: MapData = MapData {
         unique_id: String::from(unique_id),
@@ -90,22 +88,23 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData> {
 
     //Create Mapping
     new_map.map_handle = unsafe {
-        let high_size: u32 = (map_size as u64 & 0xFFFFFFFF00000000 as u64) as u32;
-        let low_size: u32 = (map_size as u64 & 0xFFFFFFFF as u64) as u32;
+        let high_size: u32 = (map_size as u64 & 0xFFFF_FFFF_0000_0000 as u64) as u32;
+        let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF as u64) as u32;
         CreateFileMappingA(
             INVALID_HANDLE_VALUE,
             null_mut(),
             PAGE_READWRITE,
             high_size,
             low_size,
-            CString::new(unique_id)?.as_ptr())
+            #[allow(clippy::temporary_cstring_as_ptr)]
+            CString::new(unique_id).unwrap().as_ptr())
     };
     let last_error = unsafe{GetLastError()};
 
     if new_map.map_handle == NULL {
-        return Err(From::from(format!("CreateFileMappingA failed with {}", last_error)));
+        return Err(SharedMemError::MapCreateFailed(last_error));
     } else if last_error == ERROR_ALREADY_EXISTS {
-        return Err(From::from("NAME_EXISTS"));
+        return Err(SharedMemError::MappingIdExists);
     }
 
     //Map mapping into address space
@@ -119,15 +118,16 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData> {
         )
     };
     if new_map.map_ptr == NULL {
+        let last_error = unsafe{GetLastError()};
         unsafe { CloseHandle(new_map.map_handle); }
-        return Err(From::from(format!("MapViewOfFile failed with {}", unsafe{GetLastError()})));
+        return Err(SharedMemError::MapCreateFailed(last_error));
     }
 
     Ok(new_map)
 }
 
 //Opens an existing mapping specified by its uid
-pub fn open_mapping(unique_id: &str) -> Result<MapData> {
+pub fn open_mapping(unique_id: &str) -> Result<MapData, SharedMemError> {
 
     let mut new_map: MapData = MapData {
         unique_id: String::from(unique_id),
@@ -141,11 +141,13 @@ pub fn open_mapping(unique_id: &str) -> Result<MapData> {
        OpenFileMappingA(
            FILE_MAP_READ| FILE_MAP_WRITE,
            FALSE,
-           CString::new(unique_id)?.as_ptr()
+           #[allow(clippy::temporary_cstring_as_ptr)]
+           CString::new(unique_id).unwrap().as_ptr()
        )
    };
    if new_map.map_handle as *mut _ == NULL {
-       return Err(From::from(format!("OpenFileMappingA failed with {}", unsafe{GetLastError()})));
+       let last_error = unsafe{GetLastError()};
+       return Err(SharedMemError::MapOpenFailed(last_error));
    }
 
    //Map mapping into address space
@@ -159,7 +161,8 @@ pub fn open_mapping(unique_id: &str) -> Result<MapData> {
         )
     };
     if new_map.map_ptr == NULL {
-        return Err(From::from(format!("MapViewOfFile failed with {}", unsafe{GetLastError()})));
+        let last_error = unsafe{GetLastError()};
+        return Err(SharedMemError::MapOpenFailed(last_error));
     }
 
     //Get the size of our mapping
@@ -181,7 +184,8 @@ pub fn open_mapping(unique_id: &str) -> Result<MapData> {
 
         //Couldnt get mapping size
         if ret_val == 0 {
-            return Err(From::from(format!("VirtualQuery failed with {}", GetLastError())));
+            let last_error = GetLastError();
+            return Err(SharedMemError::UnknownOsError(last_error));
         }
 
         mem_ba.RegionSize
@@ -191,23 +195,23 @@ pub fn open_mapping(unique_id: &str) -> Result<MapData> {
 }
 
 //This functions exports our implementation for each lock type
-pub fn lockimpl_from_type(lock_type: &LockType) -> &'static LockImpl {
+pub fn lockimpl_from_type(lock_type: LockType) -> &'static dyn LockImpl {
     match lock_type {
-        &LockType::Mutex => &Mutex{},
-        &LockType::RwLock => unimplemented!("shared_memory does not have a RwLock implementation for Windows..."),
+        LockType::Mutex => &Mutex{},
+        LockType::RwLock => unimplemented!("shared_memory does not have a RwLock implementation for Windows..."),
     }
 }
 
 //This functions exports our implementation for each event type
-pub fn eventimpl_from_type(event_type: &EventType) -> &'static EventImpl {
+pub fn eventimpl_from_type(event_type: EventType) -> &'static dyn EventImpl {
     match event_type {
-        &EventType::AutoBusy => &AutoBusy{},
-        &EventType::ManualBusy => &ManualBusy{},
-        &EventType::Manual => &ManualGeneric{},
-        &EventType::Auto => &AutoGeneric{},
+        EventType::AutoBusy => &AutoBusy{},
+        EventType::ManualBusy => &ManualBusy{},
+        EventType::Manual => &ManualGeneric{},
+        EventType::Auto => &AutoGeneric{},
     }
 }
-
+//This struct holds a unique ID which is used for the Windows Object's namespace
 struct FeatureId {
     id: u32,
 }
@@ -221,7 +225,7 @@ impl FeatureId {
 
 //Mutex
 
-fn acquire_mutex(handle: *mut winapi::ctypes::c_void) -> Result<()> {
+fn acquire_mutex(handle: *mut winapi::ctypes::c_void) -> Result<(), SharedMemError> {
     let wait_res = unsafe {WaitForSingleObject(
         handle,
         INFINITE)};
@@ -229,7 +233,7 @@ fn acquire_mutex(handle: *mut winapi::ctypes::c_void) -> Result<()> {
     if wait_res == WAIT_OBJECT_0 {
         Ok(())
     } else {
-        Err(From::from("Failed to acquire Mutex !"))
+        Err(SharedMemError::FailedToAcquireLock(wait_res))
     }
 }
 
@@ -239,7 +243,7 @@ impl LockImpl for Mutex {
     fn size_of(&self) -> usize {
         size_of::<FeatureId>()
     }
-    fn init(&self, lock_info: &mut GenericLock, create_new: bool) -> Result<()> {
+    fn init(&self, lock_info: &mut GenericLock, create_new: bool) -> Result<(), SharedMemError> {
 
         let unique_id: &mut FeatureId = unsafe {&mut (*(lock_info.lock_ptr as *mut FeatureId))};
 
@@ -257,12 +261,13 @@ impl LockImpl for Mutex {
                     CreateMutexA(
                     null_mut(),              // default security attributes
                     FALSE,             // initially not owned
-                    CString::new(unique_id.get_namespace())?.as_ptr()) as *mut _
+                    #[allow(clippy::temporary_cstring_as_ptr)]
+                    CString::new(unique_id.get_namespace()).unwrap().as_ptr()) as *mut _
                 };
                 let last_error = unsafe{GetLastError()};
 
                 if lock_info.lock_ptr as *mut _ == NULL {
-                    return Err(From::from(format!("[Create|Open]MutexA failed with {}", unsafe{GetLastError()})));
+                    return Err(SharedMemError::FailedToCreateLock(last_error));
                 } else if last_error == ERROR_ALREADY_EXISTS {
                     //Generate another ID and try again
                     unsafe {CloseHandle(lock_info.lock_ptr)};
@@ -275,19 +280,21 @@ impl LockImpl for Mutex {
 
         } else {
             if unique_id.id == 0 {
-                return Err(From::from("Mutex.init() [OPEN] : Mutex_id is 0... Has it been properly created ?"));
+                return Err(SharedMemError::FailedToCreateLock(0));
             }
 
             lock_info.lock_ptr = unsafe {
                 OpenMutexA(
                     SYNCHRONIZE,    // request full access
                     FALSE,          // handle not inheritable
-                    CString::new(unique_id.get_namespace())?.as_ptr()
+                    #[allow(clippy::temporary_cstring_as_ptr)]
+                    CString::new(unique_id.get_namespace()).unwrap().as_ptr()
                 ) as *mut _
             };
 
             if lock_info.lock_ptr as *mut _ == NULL {
-                return Err(From::from(format!("[Create|Open]MutexA failed with {}", unsafe{GetLastError()})));
+                let last_error = unsafe{GetLastError()};
+                return Err(SharedMemError::FailedToCreateLock(last_error));
             }
         }
 
@@ -296,10 +303,10 @@ impl LockImpl for Mutex {
     fn destroy(&self, lock_info: &mut GenericLock) {
         unsafe {CloseHandle(lock_info.lock_ptr)};
     }
-    fn rlock(&self, lock_ptr: *mut c_void) -> Result<()> {
+    fn rlock(&self, lock_ptr: *mut c_void) -> Result<(), SharedMemError> {
         acquire_mutex(lock_ptr)
     }
-    fn wlock(&self, lock_ptr: *mut c_void) -> Result<()> {
+    fn wlock(&self, lock_ptr: *mut c_void) -> Result<(), SharedMemError> {
         acquire_mutex(lock_ptr)
     }
     fn runlock(&self, lock_ptr: *mut c_void) {
@@ -322,7 +329,7 @@ fn timeout_to_milli(timeout: &Timeout) -> u32 {
     }
 }
 
-fn event_init(event_info: &mut GenericEvent, create_new: bool, manual_reset: bool) -> Result<()> {
+fn event_init(event_info: &mut GenericEvent, create_new: bool, manual_reset: bool) -> Result<(), SharedMemError> {
     let unique_id: &mut FeatureId = unsafe {&mut (*(event_info.ptr as *mut FeatureId))};
 
     //Create the mutex and set the ID
@@ -338,10 +345,12 @@ fn event_init(event_info: &mut GenericEvent, create_new: bool, manual_reset: boo
             event_info.ptr = unsafe {
                 CreateEventExA(
                     null_mut(),
-                    CString::new(unique_id.get_namespace())?.as_ptr(),
-                    match manual_reset {
-                        true => CREATE_EVENT_MANUAL_RESET,
-                        false => 0,
+                    #[allow(clippy::temporary_cstring_as_ptr)]
+                    CString::new(unique_id.get_namespace()).unwrap().as_ptr(),
+                    if manual_reset {
+                        CREATE_EVENT_MANUAL_RESET
+                    } else {
+                        0
                     },
                     EVENT_MODIFY_STATE | SYNCHRONIZE,
                 ) as *mut _
@@ -349,7 +358,7 @@ fn event_init(event_info: &mut GenericEvent, create_new: bool, manual_reset: boo
             let last_error = unsafe{GetLastError()};
 
             if event_info.ptr as *mut _ == NULL {
-                return Err(From::from(format!("[Create|Open]EventA failed with {}", unsafe{GetLastError()})));
+                return Err(SharedMemError::FailedToCreateEvent(last_error));
             } else if last_error == ERROR_ALREADY_EXISTS {
                 //Generate another ID and try again
                 unsafe {CloseHandle(event_info.ptr)};
@@ -362,19 +371,21 @@ fn event_init(event_info: &mut GenericEvent, create_new: bool, manual_reset: boo
 
     } else {
         if unique_id.id == 0 {
-            return Err(From::from("Mutex.init() [OPEN] : Mutex_id is 0... Has it been properly created ?"));
+            return Err(SharedMemError::FailedToCreateEvent(0));
         }
 
         event_info.ptr = unsafe {
             OpenEventA(
                 EVENT_MODIFY_STATE | SYNCHRONIZE,    // request full access
                 FALSE,          // handle not inheritable
-                CString::new(unique_id.get_namespace())?.as_ptr()
+                #[allow(clippy::temporary_cstring_as_ptr)]
+                CString::new(unique_id.get_namespace()).unwrap().as_ptr()
             ) as *mut _
         };
 
         if event_info.ptr as *mut _ == NULL {
-            return Err(From::from(format!("[Create|Open]MutexA failed with {}", unsafe{GetLastError()})));
+            let last_error = unsafe{GetLastError()};
+            return Err(SharedMemError::FailedToCreateEvent(last_error));
         }
     }
 
@@ -389,7 +400,7 @@ impl EventImpl for AutoGeneric {
         size_of::<FeatureId>()
     }
     ///Initializes the event
-    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<()> {
+    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<(), SharedMemError> {
         event_init(event_info, create_new, false)
     }
     ///De-initializes the event
@@ -397,7 +408,7 @@ impl EventImpl for AutoGeneric {
         unsafe {CloseHandle(event_info.ptr)};
     }
     ///This method should only return once the event is signaled
-    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
+    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<(), SharedMemError> {
         let wait_res = unsafe {
             WaitForSingleObject(
                 event_ptr,
@@ -408,16 +419,17 @@ impl EventImpl for AutoGeneric {
         if wait_res == WAIT_OBJECT_0 {
             Ok(())
         } else {
-            Err(From::from("AutoGeneric.wait() : Timed out"))
+            Err(SharedMemError::Timeout)
         }
     }
     ///This method sets the event. This should never block
-    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
+    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<(), SharedMemError> {
         if match state {
             EventState::Wait => unsafe {ResetEvent(event_ptr)},
             EventState::Signaled => unsafe {SetEvent(event_ptr)}
         } == 0 {
-            return Err(From::from(format!("AutoGeneric.set() : Failed to set event to specified stated with error {}",  unsafe{GetLastError()})))
+            let last_error = unsafe{GetLastError()};
+            return Err(SharedMemError::FailedToSignalEvent(last_error))
         }
 
         Ok(())
@@ -432,7 +444,7 @@ impl EventImpl for ManualGeneric {
         size_of::<FeatureId>()
     }
     ///Initializes the event
-    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<()> {
+    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<(), SharedMemError> {
         event_init(event_info, create_new, true)
     }
     ///De-initializes the event
@@ -440,7 +452,7 @@ impl EventImpl for ManualGeneric {
         unsafe {CloseHandle(event_info.ptr)};
     }
     ///This method should only return once the event is signaled
-    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
+    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<(), SharedMemError> {
         let wait_res = unsafe {
             WaitForSingleObject(
                 event_ptr,
@@ -451,16 +463,17 @@ impl EventImpl for ManualGeneric {
         if wait_res == WAIT_OBJECT_0 {
             Ok(())
         } else {
-            Err(From::from("ManualGeneric.wait() : Timed out"))
+            Err(SharedMemError::Timeout)
         }
     }
     ///This method sets the event. This should never block
-    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
+    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<(), SharedMemError> {
         if match state {
             EventState::Wait => unsafe {ResetEvent(event_ptr)},
             EventState::Signaled => unsafe {SetEvent(event_ptr)}
         } == 0 {
-            return Err(From::from(format!("ManualGeneric.set() : Failed to set event to specified stated with error {}",  unsafe{GetLastError()})))
+            let last_error = unsafe{GetLastError()};
+            return Err(SharedMemError::FailedToCreateEvent(last_error))
         }
 
         Ok(())

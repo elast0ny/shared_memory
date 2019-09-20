@@ -1,17 +1,16 @@
 //This file contains the linux specific implementations
-use super::{std,
+use crate::{
+    SharedMemError,
     EventImpl,
     EventState,
     Timeout,
     GenericEvent,
-    RawFd,
-    nix,
-    Errno,
-    Result,
-    c_void,
-    Duration,
-    Instant
 };
+
+use ::nix::errno::Errno;
+use std::os::unix::io::RawFd;
+use std::time::{Duration, Instant};
+use std::os::raw::c_void;
 
 #[doc(hidden)]
 pub struct EventFdData {
@@ -34,13 +33,13 @@ impl EventImpl for AutoEventFd {
         0
     }
     ///Initializes the event
-    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<()> {
+    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<(), SharedMemError> {
         //Allocate some data required to manage the eventfd
         let mut evt_data = Box::new(EventFdData{
             ep_fd: -1,
             evt_fd: -1,
             evt_val: [0; 8],
-            epoll_event: nix::sys::epoll::EpollEvent::new(nix::sys::epoll::EpollFlags::EPOLLIN, 0)
+            epoll_event: ::nix::sys::epoll::EpollEvent::new(nix::sys::epoll::EpollFlags::EPOLLIN, 0)
         });
 
         //If we open, we do not have the file descriptor for the eventfd yet...
@@ -51,13 +50,25 @@ impl EventImpl for AutoEventFd {
         }
 
         //Create epoll context
-        evt_data.ep_fd = nix::sys::epoll::epoll_create()?;
+        evt_data.ep_fd = match ::nix::sys::epoll::epoll_create() {
+            Ok(v) => v,
+            Err(nix::Error::Sys(e)) => return Err(SharedMemError::UnknownOsError(e as u32)),
+            _ => return Err(SharedMemError::UnknownOsError(0xffff_ffff)),
+        };
 
         //Create the eventfd
-        evt_data.evt_fd = nix::sys::eventfd::eventfd(0, nix::sys::eventfd::EfdFlags::EFD_NONBLOCK)?;
+        evt_data.evt_fd = match ::nix::sys::eventfd::eventfd(0, nix::sys::eventfd::EfdFlags::EFD_NONBLOCK) {
+            Ok(v) => v,
+            Err(nix::Error::Sys(e)) => return Err(SharedMemError::UnknownOsError(e as u32)),
+            _ => return Err(SharedMemError::UnknownOsError(0xffff_ffff)),
+        };
 
         //Add the eventfd to our epoll context
-        nix::sys::epoll::epoll_ctl(evt_data.ep_fd, nix::sys::epoll::EpollOp::EpollCtlAdd, evt_data.evt_fd, Some(&mut evt_data.epoll_event))?;
+        match nix::sys::epoll::epoll_ctl(evt_data.ep_fd, nix::sys::epoll::EpollOp::EpollCtlAdd, evt_data.evt_fd, Some(&mut evt_data.epoll_event)) {
+            Ok(_v) => {},
+            Err(nix::Error::Sys(e)) => return Err(SharedMemError::UnknownOsError(e as u32)),
+            _ => return Err(SharedMemError::UnknownOsError(0xffff_ffff)),
+        };
 
         // This is safely free'ed through self.destroy()
         event_info.ptr = Box::into_raw(evt_data) as *mut c_void;
@@ -71,7 +82,7 @@ impl EventImpl for AutoEventFd {
         }
     }
     ///This method should only return once the event is signaled
-    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
+    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<(), SharedMemError> {
 
         let my_data: &mut EventFdData = unsafe { &mut (*(event_ptr as *mut EventFdData))};
 
@@ -82,7 +93,7 @@ impl EventImpl for AutoEventFd {
             Timeout::Sec(t) => (t * 1000) as isize,
             Timeout::Milli(t) => (t) as isize,
             Timeout::Micro(t) => (t / 1000) as isize,
-            Timeout::Nano(t) => (t / 1000000) as isize,
+            Timeout::Nano(t) => (t / 1_000_000) as isize,
         };
         timeout_duration = Duration::from_millis(timeout_ms as u64);
 
@@ -91,9 +102,13 @@ impl EventImpl for AutoEventFd {
         let start_time = Instant::now();
         loop {
             //Wait for the FD to be ready
-            let res = nix::sys::epoll::epoll_wait(my_data.ep_fd, &mut [my_data.epoll_event], timeout_ms)?;
+            let res = match nix::sys::epoll::epoll_wait(my_data.ep_fd, &mut [my_data.epoll_event], timeout_ms) {
+            Ok(v) => v,
+            Err(nix::Error::Sys(e)) => return Err(SharedMemError::UnknownOsError(e as u32)),
+            _ => return Err(SharedMemError::UnknownOsError(0xffff_ffff)),
+        };
             if res != 1 {
-                return Err(From::from("Timeout"));
+                return Err(SharedMemError::Timeout);
             }
 
             //Consume the event
@@ -105,19 +120,20 @@ impl EventImpl for AutoEventFd {
                 Err(nix::Error::Sys(Errno::EAGAIN)) => {
                     //This would happen if someone read the eventfd between our epoll_wait and read calls
                     if timeout_ms != -1 && start_time.elapsed() >= timeout_duration {
-                        return Err(From::from("Timeout"));
+                        return Err(SharedMemError::Timeout);
                     } else {
                         continue;
                     }
                 },
-                Err(e) => return Err(From::from(e)),
+                Err(nix::Error::Sys(e)) => return Err(SharedMemError::UnknownOsError(e as u32)),
+                _ => return Err(SharedMemError::UnknownOsError(0xffff_ffff)),
             };
         }
 
         Ok(())
     }
     ///This method sets the event state
-    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
+    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<(), SharedMemError> {
 
         let my_data: &mut EventFdData = unsafe { &mut (*(event_ptr as *mut EventFdData))};
         //write 8 bytes to the fd
@@ -127,11 +143,16 @@ impl EventImpl for AutoEventFd {
                 match nix::unistd::read(my_data.evt_fd, &mut my_data.evt_val) {
                     Ok(_v) => {},
                     Err(nix::Error::Sys(Errno::EAGAIN)) => {},
-                    Err(e) => return Err(From::from(e)),
+                    Err(nix::Error::Sys(e)) => return Err(SharedMemError::UnknownOsError(e as u32)),
+                    _ => return Err(SharedMemError::UnknownOsError(0xffff_ffff)),
                 };
             },
             EventState::Signaled => {
-                nix::unistd::write(my_data.evt_fd, &mut unsafe {std::mem::transmute::<u64, [u8; 8]>(1)})?;
+                match ::nix::unistd::write(my_data.evt_fd, &unsafe {std::mem::transmute::<u64, [u8; 8]>(1)}) {
+                    Ok(_v) => {},
+                    Err(nix::Error::Sys(e)) => return Err(SharedMemError::UnknownOsError(e as u32)),
+                    _ => return Err(SharedMemError::UnknownOsError(0xffff_ffff)),
+                };
             },
         }
         Ok(())
@@ -146,10 +167,14 @@ impl EventImpl for ManualEventFd {
         0
     }
     ///Initializes the event
-    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<()> {
+    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<(), SharedMemError> {
         //Allocate some data required to manage the eventfd
         let mut evt_data = Box::new(EventFdData{
-            ep_fd: nix::sys::epoll::epoll_create()?,
+            ep_fd: match nix::sys::epoll::epoll_create() {
+                    Ok(v) => v,
+                    Err(nix::Error::Sys(e)) => return Err(SharedMemError::UnknownOsError(e as u32)),
+                    _ => return Err(SharedMemError::UnknownOsError(0xffff_ffff)),
+                },
             evt_fd: -1,
             evt_val: [0; 8],
             epoll_event: nix::sys::epoll::EpollEvent::new(nix::sys::epoll::EpollFlags::EPOLLIN, 0)
@@ -163,10 +188,18 @@ impl EventImpl for ManualEventFd {
         }
 
         //Create the eventfd
-        evt_data.evt_fd = nix::sys::eventfd::eventfd(0, nix::sys::eventfd::EfdFlags::EFD_NONBLOCK)?;
+        evt_data.evt_fd = match ::nix::sys::eventfd::eventfd(0, nix::sys::eventfd::EfdFlags::EFD_NONBLOCK) {
+            Ok(v) => v,
+            Err(nix::Error::Sys(e)) => return Err(SharedMemError::UnknownOsError(e as u32)),
+            _ => return Err(SharedMemError::UnknownOsError(0xffff_ffff)),
+        };
 
         //Add the eventfd to our epoll context
-        nix::sys::epoll::epoll_ctl(evt_data.ep_fd, nix::sys::epoll::EpollOp::EpollCtlAdd, evt_data.evt_fd, Some(&mut evt_data.epoll_event))?;
+        match nix::sys::epoll::epoll_ctl(evt_data.ep_fd, nix::sys::epoll::EpollOp::EpollCtlAdd, evt_data.evt_fd, Some(&mut evt_data.epoll_event)) {
+            Ok(v) => v,
+            Err(nix::Error::Sys(e)) => return Err(SharedMemError::UnknownOsError(e as u32)),
+            _ => return Err(SharedMemError::UnknownOsError(0xffff_ffff)),
+        };
 
         // This is safely free'ed through self.destroy()
         event_info.ptr = Box::into_raw(evt_data) as *mut c_void;
@@ -180,7 +213,7 @@ impl EventImpl for ManualEventFd {
         }
     }
     ///This method should only return once the event is signaled
-    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
+    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<(), SharedMemError> {
 
         let my_data: &mut EventFdData = unsafe { &mut (*(event_ptr as *mut EventFdData))};
 
@@ -190,13 +223,17 @@ impl EventImpl for ManualEventFd {
             Timeout::Sec(t) => (t * 1000) as isize,
             Timeout::Milli(t) => (t) as isize,
             Timeout::Micro(t) => (t / 1000) as isize,
-            Timeout::Nano(t) => (t / 1000000) as isize,
+            Timeout::Nano(t) => (t / 1_000_000) as isize,
         };
 
         //Wait for the FD to be ready
-        let res = nix::sys::epoll::epoll_wait(my_data.ep_fd, &mut [my_data.epoll_event], timeout_ms)?;
+        let res = match ::nix::sys::epoll::epoll_wait(my_data.ep_fd, &mut [my_data.epoll_event], timeout_ms) {
+            Ok(v) => v,
+            Err(nix::Error::Sys(e)) => return Err(SharedMemError::UnknownOsError(e as u32)),
+            _ => return Err(SharedMemError::UnknownOsError(0xffff_ffff)),
+        };
         if res != 1 {
-            return Err(From::from("Timeout"));
+            return Err(SharedMemError::Timeout);
         }
 
         //Do not consume the event
@@ -204,7 +241,7 @@ impl EventImpl for ManualEventFd {
         Ok(())
     }
     ///This method sets the event state
-    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
+    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<(), SharedMemError> {
         let my_data: &mut EventFdData = unsafe { &mut (*(event_ptr as *mut EventFdData))};
         match state {
             EventState::Wait => {
@@ -212,14 +249,19 @@ impl EventImpl for ManualEventFd {
                 match nix::unistd::read(my_data.evt_fd, &mut my_data.evt_val) {
                     Ok(_v) => {},
                     Err(nix::Error::Sys(Errno::EAGAIN)) => {},
-                    Err(e) => return Err(From::from(e)),
+                    Err(nix::Error::Sys(e)) => return Err(SharedMemError::UnknownOsError(e as u32)),
+                    _ => return Err(SharedMemError::UnknownOsError(0xffff_ffff)),
                 };
             },
             EventState::Signaled => {
                 //TODO : There is a slight chance that we could overflow the u64...
                 //      We could consume the event before setting it but that doubles
                 //      the syscall overhead...
-                nix::unistd::write(my_data.evt_fd, &mut unsafe {std::mem::transmute::<u64, [u8; 8]>(1)})?;
+                match nix::unistd::write(my_data.evt_fd, &unsafe {std::mem::transmute::<u64, [u8; 8]>(1)}) {
+                    Ok(_v) => {},
+                    Err(nix::Error::Sys(e)) => return Err(SharedMemError::UnknownOsError(e as u32)),
+                    _ => return Err(SharedMemError::UnknownOsError(0xffff_ffff)),
+                };
             },
         }
         Ok(())

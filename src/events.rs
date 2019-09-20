@@ -1,13 +1,18 @@
-use super::*;
-use std::sync::atomic::{AtomicBool, Ordering};
+use ::cfg_if::*;
+use ::enum_primitive::*;
+
 use std::mem::size_of;
+use std::os::raw::c_void;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+
+use crate::{SharedMemError, Timeout};
 
 #[doc(hidden)]
 pub struct GenericEvent {
     pub uid: u8,
     pub ptr: *mut c_void,
-    pub interface: &'static EventImpl,
+    pub interface: &'static dyn EventImpl,
 }
 impl Drop for GenericEvent {
     fn drop(&mut self) {
@@ -67,20 +72,19 @@ cfg_if! {
     }
 }
 
-
 ///All events implement this trait
 #[doc(hidden)]
 pub trait EventImpl {
     ///Returns the size of the event structure that will live in shared memory
     fn size_of(&self) -> usize;
     ///Initializes the event
-    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<()>;
+    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<(), SharedMemError>;
     ///De-initializes the event
     fn destroy(&self, event_info: &mut GenericEvent);
     ///This method should only return once the event is signaled
-    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()>;
+    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<(), SharedMemError>;
     ///This method sets the event. This should never block
-    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()>;
+    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<(), SharedMemError>;
 }
 
 ///Provides the ability to set an event to a state
@@ -88,7 +92,7 @@ pub trait EventSet {
     ///Set an event to a specific state
     ///
     ///The caller must validate event_index before calling this method
-    fn set(&mut self, event_index: usize, state: EventState) -> Result<()>;
+    fn set(&mut self, event_index: usize, state: EventState) -> Result<(), SharedMemError>;
 }
 
 ///Provides the ability to wait on an event
@@ -96,21 +100,19 @@ pub trait EventWait {
     ///Wait for an event to become signaled or until timeout is reached
     ///
     ///The caller must validate event_index before calling this method
-    fn wait(&self, event_index: usize, timeout: Timeout) -> Result<()>;
+    fn wait(&self, event_index: usize, timeout: Timeout) -> Result<(), SharedMemError>;
 }
 
 /* Cross platform Event Implementation */
 
 fn timeout_to_duration(timeout: Timeout) -> Duration {
-    Duration::from_millis(
-        match timeout {
-            Timeout::Infinite => !(0 as u64),
-            Timeout::Sec(t) => (t * 1000) as u64,
-            Timeout::Milli(t) => (t) as u64,
-            Timeout::Micro(t) => (t / 1000) as u64,
-            Timeout::Nano(t) => (t / 1000000) as u64,
-        }
-    )
+    Duration::from_millis(match timeout {
+        Timeout::Infinite => !(0 as u64),
+        Timeout::Sec(t) => (t * 1000) as u64,
+        Timeout::Milli(t) => (t) as u64,
+        Timeout::Micro(t) => (t / 1000) as u64,
+        Timeout::Nano(t) => (t / 1_000_000) as u64,
+    })
 }
 
 #[doc(hidden)]
@@ -120,14 +122,13 @@ impl EventImpl for AutoBusy {
         size_of::<AtomicBool>()
     }
     ///Initializes the event
-    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<()> {
-
+    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<(), SharedMemError> {
         //Nothing to do if we're not the creator
         if !create_new {
             return Ok(());
         }
 
-        let signal: &AtomicBool = unsafe {&mut (*(event_info.ptr as *mut AtomicBool))};
+        let signal: &AtomicBool = unsafe { &mut (*(event_info.ptr as *mut AtomicBool)) };
         signal.store(false, Ordering::Relaxed);
 
         Ok(())
@@ -137,15 +138,17 @@ impl EventImpl for AutoBusy {
         //Nothing to do here
     }
     ///This method should only return once the event is signaled
-    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
-
-        let signal: &AtomicBool = unsafe {&mut (*(event_ptr as *mut AtomicBool))};
+    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<(), SharedMemError> {
+        let signal: &AtomicBool = unsafe { &mut (*(event_ptr as *mut AtomicBool)) };
 
         let timeout_len: Duration = match timeout {
             Timeout::Infinite => {
-                while !signal.compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed).is_ok() {}
-                return Ok(())
-            },
+                while signal
+                    .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_err()
+                {}
+                return Ok(());
+            }
             _ => timeout_to_duration(timeout),
         };
 
@@ -154,11 +157,14 @@ impl EventImpl for AutoBusy {
         let start_time: Instant = Instant::now();
 
         //Busy loop checking timeout every 5 iterations
-        while !signal.compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
+        while signal
+            .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
             //num_attemps = num_attemps.wrapping_add(1);
             //if num_attemps%check_interval == 0 {
             if start_time.elapsed() >= timeout_len {
-                return Err(From::from("Timed out"));
+                return Err(SharedMemError::Timeout);
             }
             //}
         }
@@ -166,15 +172,15 @@ impl EventImpl for AutoBusy {
         Ok(())
     }
     ///This method sets the event. This should never block
-    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
-        let signal: &AtomicBool = unsafe {&mut (*(event_ptr as *mut AtomicBool))};
+    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<(), SharedMemError> {
+        let signal: &AtomicBool = unsafe { &mut (*(event_ptr as *mut AtomicBool)) };
 
         signal.store(
             match state {
                 EventState::Wait => false,
                 EventState::Signaled => true,
             },
-            Ordering::Relaxed
+            Ordering::Relaxed,
         );
 
         Ok(())
@@ -188,14 +194,13 @@ impl EventImpl for ManualBusy {
         size_of::<AtomicBool>()
     }
     ///Initializes the event
-    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<()> {
-
+    fn init(&self, event_info: &mut GenericEvent, create_new: bool) -> Result<(), SharedMemError> {
         //Nothing to do if we're not the creator
         if !create_new {
             return Ok(());
         }
 
-        let signal: &AtomicBool = unsafe {&mut (*(event_info.ptr as *mut AtomicBool))};
+        let signal: &AtomicBool = unsafe { &mut (*(event_info.ptr as *mut AtomicBool)) };
         signal.store(false, Ordering::Relaxed);
 
         Ok(())
@@ -205,15 +210,14 @@ impl EventImpl for ManualBusy {
         //Nothing to do here
     }
     ///This method should only return once the event is signaled
-    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<()> {
-
-        let signal: &AtomicBool = unsafe {&mut (*(event_ptr as *mut AtomicBool))};
+    fn wait(&self, event_ptr: *mut c_void, timeout: Timeout) -> Result<(), SharedMemError> {
+        let signal: &AtomicBool = unsafe { &mut (*(event_ptr as *mut AtomicBool)) };
 
         let timeout_len: Duration = match timeout {
             Timeout::Infinite => {
                 while !signal.load(Ordering::Relaxed) {}
-                return Ok(())
-            },
+                return Ok(());
+            }
             _ => timeout_to_duration(timeout),
         };
 
@@ -226,22 +230,22 @@ impl EventImpl for ManualBusy {
             //num_attemps = num_attemps.wrapping_add(1);
             //if num_attemps%check_interval == 0 {
             if start_time.elapsed() >= timeout_len {
-                return Err(From::from("Timed out"));
+                return Err(SharedMemError::Timeout);
             }
             //}
         }
         Ok(())
     }
     ///This method sets the event. This should never block
-    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<()> {
-        let signal: &AtomicBool = unsafe {&mut (*(event_ptr as *mut AtomicBool))};
+    fn set(&self, event_ptr: *mut c_void, state: EventState) -> Result<(), SharedMemError> {
+        let signal: &AtomicBool = unsafe { &mut (*(event_ptr as *mut AtomicBool)) };
 
         signal.store(
             match state {
                 EventState::Wait => false,
                 EventState::Signaled => true,
             },
-            Ordering::Relaxed
+            Ordering::Relaxed,
         );
 
         Ok(())
