@@ -8,21 +8,20 @@ use crate::*;
 pub struct SharedMemRaw {
     //Os specific data for the mapping
     os_data: os_impl::MapData,
-    is_owner: bool,
 }
 impl SharedMemRaw {
     ///Creates a raw mapping
     pub fn create(unique_id: &str, size: usize) -> Result<SharedMemRaw, SharedMemError> {
         let os_map: os_impl::MapData = os_impl::create_mapping(&unique_id, size)?;
 
-        Ok(SharedMemRaw { os_data: os_map, is_owner: true })
+        Ok(SharedMemRaw { os_data: os_map })
     }
     ///Opens a raw mapping
     pub fn open(unique_id: &str) -> Result<SharedMemRaw, SharedMemError> {
         //Attempt to open the mapping
         let os_map = os_impl::open_mapping(&unique_id)?;
 
-        Ok(SharedMemRaw { os_data: os_map, is_owner: false })
+        Ok(SharedMemRaw { os_data: os_map })
     }
     #[inline]
     ///Returns the size of the raw mapping
@@ -42,7 +41,7 @@ impl SharedMemRaw {
 
     #[inline]
     pub fn is_owner(&self) -> bool {
-        self.is_owner
+        self.os_data.is_owner()
     }
 }
 

@@ -104,6 +104,12 @@ pub struct MapData {
     pub map_ptr: *mut c_void,
 }
 
+impl MapData {
+    pub fn is_owner(&self) -> bool {
+        self.owner && self.pid == unsafe { libc::getpid() }
+    }
+}
+
 ///shared memory teardown for linux
 impl Drop for MapData {
     ///Takes care of properly closing the SharedMem (munmap(), shmem_unlink(), close())
@@ -123,7 +129,7 @@ impl Drop for MapData {
         //Unlink shmem
         if self.map_fd != 0 {
             //unlink shmem if we created it
-            if self.owner && self.pid == unsafe { libc::getpid() } {
+            if self.is_owner() {
                 match shm_unlink(self.unique_id.as_str()) {
                     Ok(_) => {
                         //debug!("shm_unlink()");
