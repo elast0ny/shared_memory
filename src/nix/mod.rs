@@ -91,6 +91,7 @@ pub struct MapData {
 
     //On linux, you must shm_unlink() the object created for the mapping. It wont disappear automatically.
     owner: bool,
+    pid: i32,
 
     //File descriptor to our open mapping
     map_fd: RawFd,
@@ -122,7 +123,7 @@ impl Drop for MapData {
         //Unlink shmem
         if self.map_fd != 0 {
             //unlink shmem if we created it
-            if self.owner {
+            if self.owner && self.pid == unsafe { libc::getpid() } {
                 match shm_unlink(self.unique_id.as_str()) {
                     Ok(_) => {
                         //debug!("shm_unlink()");
@@ -164,6 +165,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Share
 
     let mut new_map: MapData = MapData {
         owner: true,
+        pid: unsafe { libc::getpid() },
         unique_id: String::from(unique_id),
         map_fd: shmem_fd,
         map_size: map_size,
@@ -210,6 +212,7 @@ pub fn open_mapping(unique_id: &str) -> Result<MapData, SharedMemError> {
 
     let mut new_map: MapData = MapData {
         owner: false,
+        pid: 0,
         unique_id: String::from(unique_id),
         map_fd: shmem_fd,
         map_size: 0,
