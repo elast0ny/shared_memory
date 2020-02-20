@@ -232,7 +232,7 @@ impl SharedMemConf {
         //Generate a random unique_id if not specified
         let unique_id: String = match self.wanted_os_path {
             Some(ref s) => s.clone(),
-            None => format!("/shmem_rs_{:16X}", rand::thread_rng().gen::<u64>()),
+            None => format!("/shmem_rs_{:X}", rand::thread_rng().gen::<u64>()),
         };
 
         let meta_size: usize = self.calculate_metadata_size();
