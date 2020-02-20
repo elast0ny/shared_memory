@@ -259,7 +259,7 @@ impl ReadLockable for SharedMem {
 }
 impl WriteLockable for SharedMem {
     fn wlock<D: SharedMemCast>(
-        &mut self,
+        &self,
         lock_index: usize,
     ) -> Result<WriteLockGuard<D>, SharedMemError> {
         let lock: &GenericLock = self.conf.get_lock(lock_index);
@@ -284,7 +284,7 @@ impl WriteLockable for SharedMem {
     }
 
     fn wlock_as_slice<D: SharedMemCast>(
-        &mut self,
+        &self,
         lock_index: usize,
     ) -> Result<WriteLockGuardSlice<D>, SharedMemError> {
         let lock: &GenericLock = self.conf.get_lock(lock_index);

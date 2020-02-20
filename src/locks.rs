@@ -75,14 +75,14 @@ pub trait WriteLockable {
     ///
     ///The caller must ensure that the index given to this function is valid
     fn wlock<D: SharedMemCast>(
-        &mut self,
+        &self,
         lock_index: usize,
     ) -> Result<WriteLockGuard<D>, SharedMemError>;
     ///Returns a read/write access to a &mut [T] on the shared memory
     ///
     ///The caller must ensure that the index given to this function is valid
     fn wlock_as_slice<D: SharedMemCast>(
-        &mut self,
+        &self,
         lock_index: usize,
     ) -> Result<WriteLockGuardSlice<D>, SharedMemError>;
 }
