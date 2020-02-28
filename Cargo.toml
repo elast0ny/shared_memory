@@ -23,6 +23,9 @@ exclude = [
     ".travis.yml"
 ]
 
+[features]
+handle = ["serde"]
+
 [dev-dependencies]
 enum_primitive = "0.1"
 
@@ -35,6 +38,7 @@ theban_interval_tree = "0.7"
 memrange = "0.1"
 rand = "0.4"
 shared_memory_derive = { path = "shared_memory_derive", version = "0.10.0" }
+serde = { version = "1.0.104", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.10"

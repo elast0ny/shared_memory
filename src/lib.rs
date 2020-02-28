@@ -29,6 +29,11 @@ pub use locks::*;
 mod events;
 pub use events::*;
 
+#[cfg(feature = "handle")]
+mod handle;
+#[cfg(feature = "handle")]
+pub use handle::*;
+
 //Load up the proper OS implementation
 cfg_if! {
     if #[cfg(target_os="windows")] {
