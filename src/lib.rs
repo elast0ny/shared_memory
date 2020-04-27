@@ -3,7 +3,7 @@
 
 //! A user friendly crate that allows you to share memory between __processes__
 //!
-//! For help on how to get started, take a look at the examples !
+//! For help on how to get started, take a look at the [examples](https://github.com/elast0ny/shared_memory-rs/tree/master/examples) !
 
 use ::cfg_if::*;
 // Re-export proc macros
