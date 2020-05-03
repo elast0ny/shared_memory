@@ -189,8 +189,9 @@ impl SharedMemConf {
     }
 
     ///Forces the creation of the link file regardless of if the file already exists
-    pub fn overwrite_link(mut self) {
+    pub fn overwrite_link(mut self) -> SharedMemConf {
         self.overwrite_existing_link = true;
+        self
     }
 
     ///Adds an event of specified type
@@ -208,6 +209,7 @@ impl SharedMemConf {
         open_options.write(true);
         if self.overwrite_existing_link {
             open_options.truncate(true);
+            open_options.create(true);
         } else {
             open_options.create_new(true);
         }
