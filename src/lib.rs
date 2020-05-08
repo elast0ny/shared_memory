@@ -1,33 +1,17 @@
-//For quick-error with large enums
-#![recursion_limit = "128"]
-
-//! A user friendly crate that allows you to share memory between __processes__
+//! A thin wrapper around shared memory system calls
 //!
 //! For help on how to get started, take a look at the [examples](https://github.com/elast0ny/shared_memory-rs/tree/master/examples) !
 
-use ::cfg_if::*;
-// Re-export proc macros
-#[doc(hidden)]
-pub use shared_memory_derive::*;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
 
-use std::ffi::OsStr;
-use std::fmt;
 use std::fs::remove_file;
-use std::fs::File;
-use std::os::raw::c_void;
-use std::path::{Path, PathBuf};
-use std::slice;
+use std::path::PathBuf;
+
+use ::cfg_if::*;
 
 mod error;
 pub use error::*;
-
-//Lock definitions
-mod locks;
-pub use locks::*;
-
-//Event definitions
-mod events;
-pub use events::*;
 
 //Load up the proper OS implementation
 cfg_if! {
@@ -35,333 +19,208 @@ cfg_if! {
         mod windows;
         use windows as os_impl;
     } else if #[cfg(any(target_os="freebsd", target_os="linux", target_os="macos"))] {
-        mod nix;
-        use crate::nix as os_impl;
+        mod unix;
+        use crate::unix as os_impl;
     } else {
         compile_error!("shared_memory isnt implemented for this platform...");
     }
 }
 
-//The alignment of addresses. This affects the alignment of the user data and the
-//locks/events in the metadata section.
-const ADDR_ALIGN: u8 = 4;
-
-///Defines different variants to specify timeouts
-pub enum Timeout {
-    ///Wait forever for an event to be signaled
-    Infinite,
-    ///Duration in seconds for a timeout
-    Sec(usize),
-    ///Duration in milliseconds for a timeout
-    Milli(usize),
-    ///Duration in microseconds for a timeout
-    Micro(usize),
-    ///Duration in nanoseconds for a timeout
-    Nano(usize),
+/// Struct used to configure different parameters before creating a shared memory mapping
+pub struct ShmemConf {
+    owner: bool,
+    os_id: Option<String>,
+    overwrite_flink: bool,
+    flink_path: Option<PathBuf>,
+    size: usize,
 }
-
-//List of "safe" types that the memory can be cast to
-mod cast;
-pub use cast::*;
-
-//Implementation of SharedMemConf
-mod conf;
-pub use conf::*;
-
-//Implementation of SharedMemRaw
-mod raw;
-pub use raw::*;
-
-///Default shared mapping structure
-pub struct SharedMem {
-    //Config that describes this mapping
-    conf: SharedMemConf,
-    //The currently in use link file
-    link_file: Option<File>,
-    //Os specific data for the mapping
-    os_data: os_impl::MapData,
-    //User data start address
-    user_ptr: *mut c_void,
-}
-impl SharedMem {
-    ///Creates a memory mapping with no link file of specified size controlled by a single lock.
-    pub fn create(lock_type: LockType, size: usize) -> Result<SharedMem, SharedMemError> {
-        SharedMemConf::default()
-            .set_size(size)
-            .add_lock(lock_type, 0, size)
-            .unwrap()
-            .create()
-    }
-
-    pub fn open(unique_id: &str) -> Result<SharedMem, SharedMemError> {
-        SharedMemConf::default().set_os_path(unique_id).open()
-    }
-
-    pub fn create_linked<I: AsRef<OsStr>>(
-        new_link_path: I,
-        lock_type: LockType,
-        size: usize,
-    ) -> Result<SharedMem, SharedMemError> {
-        SharedMemConf::default()
-            .set_link_path(new_link_path.as_ref())
-            .set_size(size)
-            .add_lock(lock_type, 0, size)
-            .unwrap()
-            .create()
-    }
-    pub fn open_linked<I: AsRef<OsStr>>(
-        existing_link_path: I,
-    ) -> Result<SharedMem, SharedMemError> {
-        SharedMemConf::default()
-            .set_link_path(existing_link_path.as_ref())
-            .open()
-    }
-
-    ///Returns the size of the SharedMem
-    #[inline]
-    pub fn get_size(&self) -> usize {
-        self.conf.get_size()
-    }
-    #[inline]
-    pub fn get_metadata_size(&self) -> usize {
-        self.conf.get_metadata_size()
-    }
-    #[inline]
-    pub fn num_locks(&self) -> usize {
-        self.conf.num_locks()
-    }
-    #[inline]
-    pub fn num_events(&self) -> usize {
-        self.conf.num_events()
-    }
-    ///Returns the link_path of the SharedMem
-    #[inline]
-    pub fn get_link_path(&self) -> Option<&Path> {
-        self.conf.get_link_path()
-    }
-    ///Returns the OS specific path of the shared memory object
-    ///
-    /// Usualy on Linux, this will point to a file under /dev/shm/
-    ///
-    /// On Windows, this returns a namespace
-    #[inline]
-    pub fn get_os_path(&self) -> &str {
-        &self.os_data.unique_id
-    }
-
-    #[inline]
-    pub fn get_ptr(&self) -> *mut c_void {
-        self.user_ptr
-    }
-
-    #[inline]
-    pub fn is_owner(&self) -> bool {
-        self.conf.is_owner()
-    }
-}
-impl Drop for SharedMem {
-    ///Deletes the SharedMemConf artifacts
+impl Drop for ShmemConf {
     fn drop(&mut self) {
-        //Close the openned link file
-        drop(self.link_file.take());
-
-        //Delete link file if we own it
-        if self.conf.is_owner() {
-            if let Some(ref file_path) = self.conf.get_link_path() {
-                if file_path.is_file() {
-                    match remove_file(file_path) {
-                        _ => {}
-                    };
-                }
+        // Delete the flink if we are the owner of the mapping
+        if self.owner {
+            if let Some(flink_path) = self.flink_path.as_ref() {
+                let _ = remove_file(flink_path);
             }
         }
     }
 }
-impl fmt::Display for SharedMem {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "
-        Created : {}
-        link : \"{}\"
-        os_id : \"{}\"
-        MetaSize : {}
-        Size : {}
-        Num locks : {}
-        Num Events : {}
-        MetaAddr : {:p}
-        UserAddr : {:p}",
-            self.conf.is_owner(),
-            self.get_link_path()
-                .unwrap_or(&PathBuf::from("[NONE]"))
-                .to_string_lossy(),
-            self.get_os_path(),
-            self.get_metadata_size(),
-            self.get_size(),
-            self.num_locks(),
-            self.num_events(),
-            self.os_data.map_ptr,
-            self.get_ptr(),
-        )
+impl ShmemConf {
+    /// Create a new default shmem config
+    pub fn new() -> Self {
+        Self {
+            owner: false,
+            os_id: None,
+            overwrite_flink: false,
+            flink_path: None,
+            size: 0,
+        }
     }
-}
-impl ReadLockable for SharedMem {
-    fn rlock<D: SharedMemCast>(
-        &self,
-        lock_index: usize,
-    ) -> Result<ReadLockGuard<D>, SharedMemError> {
-        let lock: &GenericLock = self.conf.get_lock(lock_index);
+    /// Provide a specific os identifier for the mapping
+    ///
+    /// When not specified, a randomly generated identifier will be used
+    pub fn os_id<S: AsRef<str>>(mut self, os_id: S) -> Self {
+        self.os_id = Some(String::from(os_id.as_ref()));
+        self
+    }
 
-        //Make sure that we can cast our memory to the type
-        let type_size = std::mem::size_of::<D>();
-        if type_size > lock.length {
-            return Err(SharedMemError::RangeDoesNotFit(type_size, lock.length));
+    /// Overwrites file links if it already exist when calling `create()`
+    pub fn force_create_flink(mut self) -> Self {
+        self.overwrite_flink = true;
+        self
+    }
+
+    /// Create the shared memory mapping with a file link
+    ///
+    /// This creates a file on disk that contains the unique os_id for the mapping.
+    /// This can be useful when application want to rely on filesystems to share mappings
+    pub fn flink<S: AsRef<str>>(mut self, path: S) -> Self {
+        self.flink_path = Some(PathBuf::from(path.as_ref()));
+        self
+    }
+
+    /// Sets the size of the mapping that will be used in `create()`
+    pub fn size(mut self, size: usize) -> Self {
+        self.size = size;
+        self
+    }
+
+    /// Create a new mapping using the current configuration
+    pub fn create(mut self) -> Result<Shmem, ShmemError> {
+        if self.size == 0 {
+            return Err(ShmemError::MapSizeZero);
         }
 
-        //Return data wrapped in a lock
-        Ok(
-            //Unsafe required to cast shared memory to our type
-            unsafe {
-                ReadLockGuard::lock(
-                    &(*(lock.data_ptr as *const D)),
-                    lock.interface,
-                    &mut (*lock.lock_ptr),
-                )
-            },
-        )
-    }
+        // Create the mapping
+        let mapping = match self.os_id {
+            None => {
+                // Generate random ID until one works
+                loop {
+                    let cur_id = format!("/shmem_{:X}", rand::random::<u64>());
+                    match os_impl::create_mapping(&cur_id, self.size) {
+                        Err(ShmemError::MappingIdExists) => continue,
+                        Ok(m) => break m,
+                        Err(e) => return Err(e),
+                    };
+                }
+            }
+            Some(ref specific_id) => os_impl::create_mapping(specific_id, self.size)?,
+        };
 
-    fn rlock_as_slice<D: SharedMemCast>(
-        &self,
-        lock_index: usize,
-    ) -> Result<ReadLockGuardSlice<D>, SharedMemError> {
-        let lock: &GenericLock = self.conf.get_lock(lock_index);
+        // Create flink
+        if let Some(ref flink_path) = self.flink_path {
+            let mut open_options: OpenOptions = OpenOptions::new();
+            open_options.write(true);
+            if self.overwrite_flink {
+                open_options.truncate(true);
+            } else {
+                open_options.create_new(true);
+            }
 
-        //Make sure that we can cast our memory to the slice
-        let item_size = std::mem::size_of::<D>();
-        if item_size > lock.length {
-            return Err(SharedMemError::RangeDoesNotFit(item_size, lock.length));
-        }
-        let num_items: usize = lock.length / item_size;
-
-        //Return data wrapped in a lock
-        Ok(
-            //Unsafe required to cast shared memory to array
-            unsafe {
-                ReadLockGuardSlice::lock(
-                    slice::from_raw_parts(lock.data_ptr as *const D, num_items),
-                    lock.interface,
-                    &mut (*lock.lock_ptr),
-                )
-            },
-        )
-    }
-}
-impl WriteLockable for SharedMem {
-    fn wlock<D: SharedMemCast>(
-        &self,
-        lock_index: usize,
-    ) -> Result<WriteLockGuard<D>, SharedMemError> {
-        let lock: &GenericLock = self.conf.get_lock(lock_index);
-
-        //Make sure that we can cast our memory to the type
-        let type_size = std::mem::size_of::<D>();
-        if type_size > lock.length {
-            return Err(SharedMemError::RangeDoesNotFit(type_size, lock.length));
+            match open_options.open(flink_path) {
+                Ok(mut f) => {
+                    // Write the os_id in the flink
+                    if let Err(e) = f.write(mapping.unique_id.as_bytes()) {
+                        return Err(ShmemError::LinkWriteFailed(e));
+                    }
+                }
+                Err(e) => {
+                    return Err(match e.kind() {
+                        std::io::ErrorKind::AlreadyExists => ShmemError::LinkExists,
+                        _ => ShmemError::LinkCreateFailed(e),
+                    });
+                }
+            };
         }
 
-        //Return data wrapped in a lock
-        Ok(
-            //Unsafe required to cast shared memory to our type
-            unsafe {
-                WriteLockGuard::lock(
-                    &mut (*(lock.data_ptr as *mut D)),
-                    lock.interface,
-                    &mut (*lock.lock_ptr),
-                )
-            },
-        )
+        self.owner = true;
+        self.size = mapping.map_size;
+
+        Ok(Shmem {
+            config: self,
+            mapping,
+        })
     }
 
-    fn wlock_as_slice<D: SharedMemCast>(
-        &self,
-        lock_index: usize,
-    ) -> Result<WriteLockGuardSlice<D>, SharedMemError> {
-        let lock: &GenericLock = self.conf.get_lock(lock_index);
-
-        //Make sure that we can cast our memory to the slice
-        let item_size = std::mem::size_of::<D>();
-        if item_size > lock.length {
-            return Err(SharedMemError::RangeDoesNotFit(item_size, lock.length));
+    /// Opens an existing mapping using the current configuration
+    pub fn open(mut self) -> Result<Shmem, ShmemError> {
+        // Must at least have a flink or an os_id
+        if self.flink_path.is_none() && self.os_id.is_none() {
+            return Err(ShmemError::NoLinkOrOsId);
         }
-        //Calculate how many items our slice will have
-        let num_items: usize = lock.length / item_size;
 
-        //Return data wrapped in a lock
-        Ok(
-            //Unsafe required to cast shared memory to array
-            unsafe {
-                WriteLockGuardSlice::lock(
-                    slice::from_raw_parts_mut((lock.data_ptr as usize) as *mut D, num_items),
-                    lock.interface,
-                    &mut (*lock.lock_ptr),
-                )
-            },
-        )
-    }
-}
-impl ReadRaw for SharedMem {
-    unsafe fn get_raw<D: SharedMemCast>(&self) -> &D {
-        let user_data = self.os_data.map_ptr as usize + self.conf.get_metadata_size();
-        &(*(user_data as *const D))
-    }
-
-    unsafe fn get_raw_slice<D: SharedMemCast>(&self) -> &[D] {
-        //Make sure that we can cast our memory to the slice
-        let item_size = std::mem::size_of::<D>();
-        if item_size > self.conf.get_size() {
-            panic!(
-                "Tried to map type of {} bytes to a lock holding only {} bytes",
-                item_size,
-                self.conf.get_size()
-            );
+        // Get the os_id from the flink
+        if let Some(ref flink_path) = self.flink_path {
+            let mut f = match File::open(flink_path) {
+                Ok(f) => f,
+                Err(e) => return Err(ShmemError::LinkOpenFailed(e)),
+            };
+            let mut contents: Vec<u8> = Vec::new();
+            if let Err(e) = f.read_to_end(&mut contents) {
+                return Err(ShmemError::LinkReadFailed(e));
+            }
+            let link_os_id = match String::from_utf8(contents) {
+                Ok(s) => s,
+                Err(_) => return Err(ShmemError::LinkDoesNotExist),
+            };
+            if let Some(os_id) = self.os_id.as_ref() {
+                if *os_id != link_os_id {
+                    return Err(ShmemError::FlinkInvalidOsId);
+                }
+            } else {
+                self.os_id = Some(link_os_id);
+            }
         }
-        let num_items: usize = self.conf.get_size() / item_size;
-        let user_data = self.os_data.map_ptr as usize + self.conf.get_metadata_size();
 
-        slice::from_raw_parts(user_data as *const D, num_items)
-    }
-}
-impl WriteRaw for SharedMem {
-    unsafe fn get_raw_mut<D: SharedMemCast>(&mut self) -> &mut D {
-        let user_data = self.os_data.map_ptr as usize + self.conf.get_metadata_size();
-        &mut (*(user_data as *mut D))
-    }
-    unsafe fn get_raw_slice_mut<D: SharedMemCast>(&mut self) -> &mut [D] {
-        //Make sure that we can cast our memory to the slice
-        let item_size = std::mem::size_of::<D>();
-        if item_size > self.conf.get_size() {
-            panic!(
-                "Tried to map type of {} bytes to a lock holding only {} bytes",
-                item_size,
-                self.conf.get_size()
-            );
-        }
-        let num_items: usize = self.conf.get_size() / item_size;
-        let user_data = self.os_data.map_ptr as usize + self.conf.get_metadata_size();
+        let os_id = match self.os_id.as_ref() {
+            Some(i) => i,
+            None => return Err(ShmemError::NoLinkOrOsId),
+        };
 
-        slice::from_raw_parts_mut(user_data as *mut D, num_items)
+        let mapping = os_impl::open_mapping(os_id)?;
+
+        self.size = mapping.map_size;
+        self.owner = false;
+
+        Ok(Shmem {
+            config: self,
+            mapping,
+        })
     }
 }
-impl EventSet for SharedMem {
-    fn set(&mut self, event_index: usize, state: EventState) -> Result<(), SharedMemError> {
-        let lock: &GenericEvent = self.conf.get_event(event_index);
-        lock.interface.set(lock.ptr, state)
-    }
+
+/// Structure used to extract information from an existing shared memory mapping
+#[allow(clippy::len_without_is_empty)]
+pub struct Shmem {
+    config: ShmemConf,
+    mapping: os_impl::MapData,
 }
-impl EventWait for SharedMem {
-    fn wait(&self, event_index: usize, timeout: Timeout) -> Result<(), SharedMemError> {
-        let lock: &GenericEvent = self.conf.get_event(event_index);
-        lock.interface.wait(lock.ptr, timeout)
+impl Shmem {
+    /// Returns whether we created the mapping or not
+    pub fn is_owner(&self) -> bool {
+        self.config.owner
+    }
+    /// Allows for gaining/releasing ownership of the mapping
+    ///
+    /// Warning : You must ensure at least one process owns the mapping in order to ensure proper cleanup code is ran
+    pub fn set_owner(&mut self, is_owner: bool) -> bool {
+        let prev_val = self.config.owner;
+        self.config.owner = is_owner;
+        prev_val
+    }
+    /// Returns the OS unique identifier for the mapping
+    pub fn get_os_id(&self) -> &str {
+        self.mapping.unique_id.as_str()
+    }
+    /// Returns the flink path if present
+    pub fn get_flink_path(&self) -> Option<&PathBuf> {
+        self.config.flink_path.as_ref()
+    }
+    /// Returns the total size of the mapping
+    pub fn len(&self) -> usize {
+        self.mapping.map_size
+    }
+    /// Returns a raw pointer to the mapping
+    pub fn as_ptr(&self) -> *mut u8 {
+        self.mapping.map_ptr
     }
 }

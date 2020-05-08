@@ -5,9 +5,13 @@
 [![mio](https://docs.rs/shared_memory/badge.svg)](https://docs.rs/shared_memory/)
 ![Lines of Code](https://tokei.rs/b1/github/elast0ny/shared_memory-rs)
 
-A user friendly crate that allows you to share memory between __processes__.
+A crate that allows you to share memory between __processes__.
 
-This crate aims to provide lightweight wrappers around shared memory mappings in an OS agnostic way while also providing an abstraction layer on commonly used [synchronization primitives](#synchronization-primitives).
+This crate provides lightweight wrappers around shared memory APIs in an OS agnostic way. It is intended to be used with it's sister crate [raw_sync](https://github.com/elast0ny/raw_sync-rs) which provide simple primitves to synchronize access to the shared memory (Mutex, RwLock, Events, etc...).
+
+| raw_sync |
+|----|
+|[![crates.io](https://img.shields.io/crates/v/raw_sync.svg)](https://crates.io/crates/raw_sync) [![docs.rs](https://docs.rs/raw_sync/badge.svg)](https://docs.rs/raw_sync/)|
 
 ## Usage
 
@@ -15,22 +19,8 @@ For usage examples, see code located in [examples/](examples/) :
 
   | Examples | Description |
   |----------|-------------|
-  |[basic](examples/basic.rs)|Basic use of the library when all you need is memory protected by one lock|
-  |[custom](examples/custom.rs)| Shows the more advanced usage of the crate with configs and events |
-  |[raw](examples/raw.rs)| Create/Open raw mappings that are not managed by this crate |
-
-## Synchronization Primitives
-
-| Feature| Description | Linux | Windows|  Mac<sup>**</sup>| FreeBSD<sup>**</sup> |
-|--------|-------------|:-----:|:------:|:----:| :-----: |
-|LockType::Mutex|Mutually exclusive lock|✔|✔</sup>|✔|✔|
-|LockType::RwLock|Exlusive write/shared read|✔|X<sup>[#1](https://github.com/elast0ny/shared_memory-rs/issues/1)</sup>|✔|✔|
-|EventType::Auto/Manual| Generic event : [pthread_cond](https://linux.die.net/man/3/pthread_cond_init) on Unix and [Event Objects](https://msdn.microsoft.com/en-us/library/windows/desktop/ms682655.aspx) on windows. |✔|✔|X<sup>[#14](https://github.com/elast0ny/shared_memory-rs/issues/14)</sup>|✔|
-|EventType::*Busy|Busy event managed by polling an AtomicBool in a loop|✔|✔|✔|✔|
-|EventType::*EventFd|[Linux specific event type](http://man7.org/linux/man-pages/man2/eventfd.2.html)|✔|N/A|N/A|N/A|
-
-<sup>\* Events take the Auto or Manual prefix to indicate whether signals are automatically "consumed" by waiting threads or not</sup>
-<br><sup>\*\* I do not own a Mac (or have FreeBSD installed) so my validation is limited to "build only" on these platforms</sup>
+  |[event](examples/event.rs)| Shows the use of shared events through shared memory|
+  |[mutex](examples/event.rs)| Shows the use of a shared mutex through shared memory|
 
 ## License
 
@@ -42,3 +32,11 @@ For usage examples, see code located in [examples/](examples/) :
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
+
+
+## Changelog
+
+### __0.11.0__
+This release breaks backwards compatibility and removes a bunch of previous features which hid many unsafe behaviors (automatically casting shared memory to Rust types).
+
+The release also marks the split between `shared_memory` and its synchronization primitives into a seperate crate `raw_sync`.
