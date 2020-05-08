@@ -6,7 +6,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 
 use std::fs::remove_file;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use ::cfg_if::*;
 
@@ -73,7 +73,7 @@ impl ShmemConf {
     ///
     /// This creates a file on disk that contains the unique os_id for the mapping.
     /// This can be useful when application want to rely on filesystems to share mappings
-    pub fn flink<S: AsRef<str>>(mut self, path: S) -> Self {
+    pub fn flink<S: AsRef<Path>>(mut self, path: S) -> Self {
         self.flink_path = Some(PathBuf::from(path.as_ref()));
         self
     }
