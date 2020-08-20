@@ -44,6 +44,7 @@ impl Drop for ShmemConf {
         }
     }
 }
+#[allow(clippy::new_without_default)]
 impl ShmemConf {
     /// Create a new default shmem config
     pub fn new() -> Self {
@@ -189,11 +190,11 @@ impl ShmemConf {
 }
 
 /// Structure used to extract information from an existing shared memory mapping
-#[allow(clippy::len_without_is_empty)]
 pub struct Shmem {
     config: ShmemConf,
     mapping: os_impl::MapData,
 }
+#[allow(clippy::len_without_is_empty)]
 impl Shmem {
     /// Returns whether we created the mapping or not
     pub fn is_owner(&self) -> bool {
@@ -203,6 +204,10 @@ impl Shmem {
     ///
     /// Warning : You must ensure at least one process owns the mapping in order to ensure proper cleanup code is ran
     pub fn set_owner(&mut self, is_owner: bool) -> bool {
+        
+        #[cfg(any(target_os="freebsd", target_os="linux", target_os="macos"))]
+        self.mapping.set_owner(is_owner);
+        
         let prev_val = self.config.owner;
         self.config.owner = is_owner;
         prev_val

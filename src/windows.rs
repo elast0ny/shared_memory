@@ -54,7 +54,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
     let mut new_map: MapData = MapData {
         unique_id: String::from(unique_id),
         map_handle: NULL,
-        map_size: map_size,
+        map_size,
         map_ptr: null_mut(),
     };
 

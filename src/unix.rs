@@ -67,6 +67,14 @@ impl Drop for MapData {
     }
 }
 
+impl MapData {
+    pub fn set_owner(&mut self, is_owner:bool) -> bool {
+        let prev_val = self.owner;
+        self.owner = is_owner;
+        prev_val
+    }
+}
+
 /// Creates a mapping specified by the uid and size
 pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
     //Create shared memory file descriptor
@@ -85,7 +93,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
         owner: true,
         unique_id: String::from(unique_id),
         map_fd: shmem_fd,
-        map_size: map_size,
+        map_size,
         map_ptr: null_mut(),
     };
 
