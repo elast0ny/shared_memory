@@ -228,12 +228,16 @@ impl Shmem {
     pub fn as_ptr(&self) -> *mut u8 {
         self.mapping.map_ptr
     }
-    /// Return mapping as a byte slice.
-    pub fn as_slice(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.as_ptr(), self.len()) }
+    /// Returns mapping as a byte slice
+    /// # Safety
+    /// This function is unsafe because it is impossible to ensure the range of bytes is immutable
+    pub unsafe fn as_slice(&self) -> &[u8] {
+        std::slice::from_raw_parts(self.as_ptr(), self.len())
     }
-    /// Return mapping as a mutable byte slice.
-    pub fn as_slice_mut(&mut self) -> &mut [u8] {
-        unsafe { std::slice::from_raw_parts_mut(self.as_ptr(), self.len()) }
+    /// Returns mapping as a mutable byte slice
+    /// # Safety
+    /// This function is unsafe because it is impossible to ensure the returned mutable refence is unique/exclusive
+    pub unsafe fn as_slice_mut(&mut self) -> &mut [u8] {
+        std::slice::from_raw_parts_mut(self.as_ptr(), self.len())
     }
 }
