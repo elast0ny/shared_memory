@@ -52,6 +52,7 @@ impl Drop for MapData {
 
 //Creates a mapping specified by the uid and size
 pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
+    //In addition to being the return value, the Drop impl of this helps clean up on failure
     let mut new_map: MapData = MapData {
         unique_id: String::from(unique_id),
         map_handle: NULL,
@@ -61,7 +62,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
 
     //Create Mapping
     new_map.map_handle = unsafe {
-        let high_size: u32 = (map_size as u64 & 0xFFFF_FFFF_0000_0000 as u64) as u32;
+        let high_size: u32 = ((map_size as u64 & 0xFFFF_FFFF_0000_0000 as u64) >> 32) as u32;
         let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF as u64) as u32;
         let unique_id: Vec<u16> = OsStr::new(unique_id).encode_wide().chain(once(0)).collect();
         CreateFileMappingW(
@@ -86,9 +87,6 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
         unsafe { MapViewOfFile(new_map.map_handle, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0) } as _;
     if new_map.map_ptr.is_null() {
         let last_error = unsafe { GetLastError() };
-        unsafe {
-            CloseHandle(new_map.map_handle);
-        }
         return Err(ShmemError::MapCreateFailed(last_error));
     }
 
@@ -97,6 +95,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
 
 //Opens an existing mapping specified by its uid
 pub fn open_mapping(unique_id: &str) -> Result<MapData, ShmemError> {
+    //In addition to being the return value, the Drop impl of this helps clean up on failure
     let mut new_map: MapData = MapData {
         unique_id: String::from(unique_id),
         map_handle: NULL,
