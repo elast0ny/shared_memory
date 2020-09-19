@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Incrementing value by 1 !");
         loop {
             let mut guard = mutex.lock()?;
-            let val: &mut u8 = unsafe {&mut **guard};
+            let val: &mut u8 = unsafe { &mut **guard };
             if *val > 10 {
                 break;
             }
@@ -33,13 +33,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Open existing event
         println!("Openning mutex from shared memory");
         let base_ptr = shmem.as_ptr();
-        let (mutex, _) =
-            unsafe { Mutex::from_existing(base_ptr, base_ptr.add(Mutex::size_of(Some(base_ptr))))? };
+        let (mutex, _) = unsafe {
+            Mutex::from_existing(base_ptr, base_ptr.add(Mutex::size_of(Some(base_ptr))))?
+        };
 
-            println!("Incrementing value by 2 !");
+        println!("Incrementing value by 2 !");
         loop {
             let mut guard = mutex.lock()?;
-            let val: &mut u8 = unsafe {&mut **guard};
+            let val: &mut u8 = unsafe { &mut **guard };
             if *val > 10 {
                 break;
             }

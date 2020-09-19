@@ -68,7 +68,7 @@ impl Drop for MapData {
 }
 
 impl MapData {
-    pub fn set_owner(&mut self, is_owner:bool) -> bool {
+    pub fn set_owner(&mut self, is_owner: bool) -> bool {
         let prev_val = self.owner;
         self.owner = is_owner;
         prev_val

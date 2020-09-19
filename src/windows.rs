@@ -6,17 +6,20 @@ use ::winapi::{
     um::{
         errhandlingapi::GetLastError,
         handleapi::{CloseHandle, INVALID_HANDLE_VALUE},
-        memoryapi::{CreateFileMappingW, OpenFileMappingW, MapViewOfFile, UnmapViewOfFile, VirtualQuery, FILE_MAP_READ, FILE_MAP_WRITE},
+        memoryapi::{
+            CreateFileMappingW, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, VirtualQuery,
+            FILE_MAP_READ, FILE_MAP_WRITE,
+        },
         winnt::{HANDLE, MEMORY_BASIC_INFORMATION, PAGE_READWRITE},
     },
 };
 
 use crate::ShmemError;
 
-use std::os::windows::ffi::OsStrExt;
 use std::ffi::OsStr;
 use std::iter::once;
 use std::mem::size_of;
+use std::os::windows::ffi::OsStrExt;
 use std::ptr::null_mut;
 
 pub struct MapData {
