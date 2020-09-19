@@ -6,15 +6,16 @@ use ::winapi::{
     um::{
         errhandlingapi::GetLastError,
         handleapi::{CloseHandle, INVALID_HANDLE_VALUE},
-        memoryapi::{MapViewOfFile, UnmapViewOfFile, VirtualQuery, FILE_MAP_READ, FILE_MAP_WRITE},
-        winbase::{CreateFileMappingA, OpenFileMappingA},
+        memoryapi::{CreateFileMappingW, OpenFileMappingW, MapViewOfFile, UnmapViewOfFile, VirtualQuery, FILE_MAP_READ, FILE_MAP_WRITE},
         winnt::{HANDLE, MEMORY_BASIC_INFORMATION, PAGE_READWRITE},
     },
 };
 
 use crate::ShmemError;
 
-use std::ffi::CString;
+use std::os::windows::ffi::OsStrExt;
+use std::ffi::OsStr;
+use std::iter::once;
 use std::mem::size_of;
 use std::ptr::null_mut;
 
@@ -62,14 +63,14 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
     new_map.map_handle = unsafe {
         let high_size: u32 = (map_size as u64 & 0xFFFF_FFFF_0000_0000 as u64) as u32;
         let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF as u64) as u32;
-        CreateFileMappingA(
+        let unique_id: Vec<u16> = OsStr::new(unique_id).encode_wide().chain(once(0)).collect();
+        CreateFileMappingW(
             INVALID_HANDLE_VALUE,
             null_mut(),
             PAGE_READWRITE,
             high_size,
             low_size,
-            #[allow(clippy::temporary_cstring_as_ptr)]
-            CString::new(unique_id).unwrap().as_ptr(),
+            unique_id.as_ptr(),
         )
     };
     let last_error = unsafe { GetLastError() };
@@ -105,11 +106,11 @@ pub fn open_mapping(unique_id: &str) -> Result<MapData, ShmemError> {
 
     //Open existing mapping
     new_map.map_handle = unsafe {
-        OpenFileMappingA(
+        let unique_id: Vec<u16> = OsStr::new(unique_id).encode_wide().chain(once(0)).collect();
+        OpenFileMappingW(
             FILE_MAP_READ | FILE_MAP_WRITE,
             FALSE as _,
-            #[allow(clippy::temporary_cstring_as_ptr)]
-            CString::new(unique_id).unwrap().as_ptr(),
+            unique_id.as_ptr(),
         )
     };
     if new_map.map_handle as *mut _ == NULL {
