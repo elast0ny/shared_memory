@@ -112,7 +112,7 @@ impl ShmemConf {
             let mut open_options: OpenOptions = OpenOptions::new();
             open_options.write(true);
             if self.overwrite_flink {
-                open_options.truncate(true);
+                open_options.create(true).truncate(true);
             } else {
                 open_options.create_new(true);
             }
