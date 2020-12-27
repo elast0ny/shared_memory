@@ -19,7 +19,7 @@ exclude = [
 ]
 
 [dependencies]
-quick-error = "1.*"
+quick-error = "2.*"
 cfg-if = "0.*"
 rand = "0.*"
 
