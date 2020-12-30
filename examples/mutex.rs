@@ -27,6 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             println!("Val : {}", *val);
             *val += 1;
+            mutex.release()?;
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
     } else {
@@ -46,6 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             println!("Val : {}", *val);
             *val += 2;
+            mutex.release()?;
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
     }
