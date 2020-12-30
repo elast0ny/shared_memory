@@ -7,7 +7,7 @@ use shared_memory::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = App::new("Mutex Example")
-        .about("Spawns N threads that increment a value to 20 using a mutex")
+        .about("Spawns N threads that increment a value to 10 using a mutex")
         .arg(
             Arg::with_name("num_threads")
                 .help("Number of threads to spawn")
@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..num_threads {
         let thread_id = i + 1;
         threads.push(thread::spawn(move || {
-            increment_value("mutex_mapping", thread_id + 1);
+            increment_value("mutex_mapping", thread_id);
         }));
     }
 
@@ -58,42 +58,51 @@ fn increment_value(shmem_flink: &str, thread_num: usize) {
         }
     };
 
-    let mut base_ptr = shmem.as_ptr();
+    let mut raw_ptr = shmem.as_ptr();
     let is_init: &mut AtomicU8;
     let mutex: Box<dyn LockImpl>;
 
     unsafe {
-        is_init = &mut *(base_ptr as *mut u8 as *mut AtomicU8);
-        base_ptr = base_ptr.add(8);
+        is_init = &mut *(raw_ptr as *mut u8 as *mut AtomicU8);
+        raw_ptr = raw_ptr.add(8);
     };
 
     // Initialize or wait for initialized mutex
     if shmem.is_owner() {
         is_init.store(0, Ordering::Relaxed);
         // Initialize the mutex
-        let (lock, _bytes_used) =
-            unsafe { Mutex::new(base_ptr, base_ptr.add(Mutex::size_of(Some(base_ptr)))).unwrap() };
-        mutex = lock;
+        let (lock, _bytes_used) = unsafe {
+            Mutex::new(
+                raw_ptr,                                    // Base address of Mutex
+                raw_ptr.add(Mutex::size_of(Some(raw_ptr))), // Address of data protected by mutex
+            )
+            .unwrap()
+        };
         is_init.store(1, Ordering::Relaxed);
+        mutex = lock;
     } else {
         // wait until mutex is initialized
         while is_init.load(Ordering::Relaxed) != 1 {}
         // Load existing mutex
         let (lock, _bytes_used) = unsafe {
-            Mutex::from_existing(base_ptr, base_ptr.add(Mutex::size_of(Some(base_ptr)))).unwrap()
+            Mutex::from_existing(
+                raw_ptr,                                    // Base address of Mutex
+                raw_ptr.add(Mutex::size_of(Some(raw_ptr))), // Address of data  protected by mutex
+            )
+            .unwrap()
         };
         mutex = lock;
     }
 
-    // Loop until mutex data reaches 20
+    // Loop until mutex data reaches 10
     loop {
         // Scope where mutex will be locked
         {
             let mut guard = mutex.lock().unwrap();
             // Cast mutex data to &mut u8
             let val: &mut u8 = unsafe { &mut **guard };
-            if *val > 20 {
-                break;
+            if *val > 10 {
+                return;
             }
 
             // Print contents and increment value
