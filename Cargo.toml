@@ -25,6 +25,7 @@ rand = "0.*"
 
 [dev-dependencies]
 raw_sync = "0.*"
+clap ="2"
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.*"
