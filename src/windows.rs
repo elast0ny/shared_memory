@@ -65,8 +65,8 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
 
     //Create Mapping
     new_map.map_handle = unsafe {
-        let high_size: u32 = ((map_size as u64 & 0xFFFF_FFFF_0000_0000 as u64) >> 32) as u32;
-        let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF as u64) as u32;
+        let high_size: u32 = ((map_size as u64 & 0xFFFF_FFFF_0000_0000_u64) >> 32) as u32;
+        let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF_u64) as u32;
         let unique_id: Vec<u16> = OsStr::new(unique_id).encode_wide().chain(once(0)).collect();
         CreateFileMappingW(
             INVALID_HANDLE_VALUE,
