@@ -32,13 +32,15 @@ fn posix_behavior() {
                 // Wait for threads B and C to confirm they have created their instances.
                 rx_a.recv().unwrap();
                 rx_a.recv().unwrap();
+                // Tell thread B to drop its instance.
+                tx_b.send(String::new()).unwrap();
                 os_id
                 // Owned shmem drops here after a second owned instance has been
                 // dropped in thread B.
             };
             // Should not be able to reopen shared memory after an owned instance
             // has been dropped in thread B.
-            // assert!(ShmemConf::new().size(4096).os_id(os_id).open().is_err());
+            assert!(ShmemConf::new().size(4096).os_id(os_id).open().is_err());
             // Tell thread C to drop the unowned instance.
             tx_c.send(String::new()).unwrap();
         })
@@ -60,6 +62,7 @@ fn posix_behavior() {
                     let mut shmem = ShmemConf::new().os_id(&existing_os_id).open().unwrap();
                     shmem.set_owner(true);
                     tx_a.send(String::new()).unwrap();
+                    rx_b.recv().unwrap();
                     // When the owning shmem is dropped here, we
                     // 1. should be able to still drop the original shared memory in thread A.
                     // 2. should not be able to reopen it with the same name in thread A, even

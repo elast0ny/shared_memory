@@ -1,7 +1,7 @@
 use ::winapi::{
     shared::{
         minwindef::{BOOL, DWORD, LPVOID, MAX_PATH},
-        ntdef::{FALSE, NULL},
+        ntdef::NULL,
         winerror::{
             ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND,
         },
@@ -14,8 +14,8 @@ use ::winapi::{
         },
         handleapi::{CloseHandle, INVALID_HANDLE_VALUE},
         memoryapi::{
-            CreateFileMappingW, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, VirtualQuery,
-            FILE_MAP_READ, FILE_MAP_WRITE,
+            CreateFileMappingW, MapViewOfFile, UnmapViewOfFile, VirtualQuery, FILE_MAP_READ,
+            FILE_MAP_WRITE,
         },
         minwinbase::FileRenameInfo,
         winbase::FILE_FLAG_DELETE_ON_CLOSE,
@@ -67,7 +67,7 @@ impl Drop for MapData {
             }
         }
 
-        // Close the handle to the backing file
+        // Close the handle to the mmapped file
         if self.file_handle as *mut _ != NULL {
             unsafe {
                 CloseHandle(self.file_handle);
@@ -77,9 +77,9 @@ impl Drop for MapData {
         // Inspired by the boost implementation at
         // https://github.com/boostorg/interprocess/blob/140b50efb3281fa3898f3a4cf939cfbda174718f/include/boost/interprocess/detail/win32_api.hpp
         // Emulate POSIX behavior by
-        // 1. Opening the backing file with `FILE_FLAG_DELETE_ON_CLOSE`, causing it to be
+        // 1. Opening the mmapped file with `FILE_FLAG_DELETE_ON_CLOSE`, causing it to be
         // deleted when all its handles have been closed.
-        // 2. Renaming the backing file to prevent future access/opening.
+        // 2. Renaming the mmapped file to prevent future access/opening.
         // Once this has run, existing file/mapping handles remain usable but the file is
         // deleted once all handles have been closed and no new handles can be opened
         // because the file has been renamed. This matches the behavior of shm_unlink()
@@ -116,10 +116,13 @@ impl Drop for MapData {
                     Err(ShmemError::UnknownOsError(last_error)).unwrap()
                 }
             } else {
-                // The backing file still exists and has not been renamed, but may be renamed by the time
+                // The mmapped file still exists and has not been renamed, but may be renamed by the time
                 // `SetFileInformationByHandle` is called. Handle that case with an error at the call site.
                 base_path.pop();
-                base_path.push(format!("{}_delete", self.unique_id.trim_start_matches("/")));
+                base_path.push(format!(
+                    "{}_deleted",
+                    self.unique_id.trim_start_matches("/")
+                ));
                 let new_filename: Vec<WCHAR> = base_path
                     .as_os_str()
                     .encode_wide()
@@ -155,7 +158,7 @@ impl Drop for MapData {
                         )
                     );
                 };
-                // Rename the backing file
+                // Rename the mmapped file
                 if unsafe {
                     SetFileInformationByHandle(
                         handle,
@@ -310,76 +313,64 @@ pub fn open_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemEr
         map_ptr: null_mut(),
     };
 
-    //Open existing mapping
+    //Open existing mapping or create one fom the mmapped file
+    // ---------------------------------------------------
     // See https://docs.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-createfilemappingw
     // for why we don't need to flush the file views to disk to share the same memory between processes.
     // "...file views derived from any file mapping object that is backed by the same file are coherent or
     // identical at a specific time."
-    new_map.map_handle = unsafe {
-        let unique_id: Vec<u16> = OsStr::new(unique_id).encode_wide().chain(once(0)).collect();
-        // This call can fail with `ERROR_FILE_NOT_FOUND` if the mapping has been deleted because there
-        // are no active handles. In that case we fall back to getting a new handle from the backing
-        // file, see below.
-        OpenFileMappingW(
-            FILE_MAP_READ | FILE_MAP_WRITE,
-            FALSE as _,
-            unique_id.as_ptr(),
+    // ---------------------------------------------------
+    // Start by opening the mmapped file. Resist the temptation to try `OpenFileMappingW` directly, this will
+    // succeed even if the mmapped file has been renamed when dropping owning `MapData` if other mappings are
+    // still open. Posix shared memory doesn't allow that, see the `shm_unlink()` docs.
+    let mut base_path = get_tmp_dir().unwrap();
+    base_path.push(unique_id.trim_start_matches("/"));
+    // Encode the file path as a null-terminated UTF-16 sequence
+    let file_path: Vec<WCHAR> = base_path
+        .as_os_str()
+        .encode_wide()
+        .chain(OsStr::new("\0").encode_wide())
+        .collect();
+    new_map.file_handle = unsafe {
+        CreateFileW(
+            file_path.as_ptr(),
+            GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            null_mut(),
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_TEMPORARY,
+            NULL,
         )
     };
-    if new_map.map_handle as *mut _ == NULL {
+    if new_map.file_handle == INVALID_HANDLE_VALUE {
+        // Can't open the mmapped file.
         let last_error = unsafe { GetLastError() };
         if last_error == ERROR_FILE_NOT_FOUND {
-            // The mapping doesn't exist, create one from the backing file.
-            let mut base_path = get_tmp_dir().unwrap();
-            base_path.push(unique_id.trim_start_matches("/"));
-            // Encode the file path as a null-terminated UTF-16 sequence
-            let file_path: Vec<WCHAR> = base_path
-                .as_os_str()
-                .encode_wide()
-                .chain(OsStr::new("\0").encode_wide())
-                .collect();
-            new_map.file_handle = unsafe {
-                CreateFileW(
-                    file_path.as_ptr(),
-                    GENERIC_READ | GENERIC_WRITE,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                    null_mut(),
-                    OPEN_EXISTING,
-                    FILE_ATTRIBUTE_TEMPORARY,
-                    NULL,
-                )
-            };
-            if new_map.file_handle == INVALID_HANDLE_VALUE {
-                // The backing file doesn't exist.
-                let last_error = unsafe { GetLastError() };
-                return Err(ShmemError::MapOpenFailed(last_error));
-            } else {
-                new_map.map_handle = unsafe {
-                    let high_size: u32 =
-                        ((map_size as u64 & 0xFFFF_FFFF_0000_0000_u64) >> 32) as u32;
-                    let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF_u64) as u32;
-                    let unique_id: Vec<u16> =
-                        OsStr::new(unique_id).encode_wide().chain(once(0)).collect();
-                    CreateFileMappingW(
-                        new_map.file_handle,
-                        null_mut(),
-                        PAGE_READWRITE,
-                        high_size,
-                        low_size,
-                        unique_id.as_ptr(),
-                    )
-                };
-                // Unlike in `create_mapping` no need to check for `ERROR_ALREADY_EXISTS`, `CreateFileMappingW`
-                // returns the handle to the existing object if one exists. This might be the case if processes
-                // race for mapping creation between here and the `OpenFileMappingW` call above.
-                if new_map.map_handle == NULL {
-                    let last_error = unsafe { GetLastError() };
-                    return Err(ShmemError::MapCreateFailed(last_error));
-                }
-            }
-        } else {
-            // `OpenFileMappingW` has failed with something else than `ERROR_FILE_NOT_FOUND`.
+            // The mmapped file doesn't exist.
             return Err(ShmemError::MapOpenFailed(last_error));
+        } else {
+            return Err(ShmemError::UnknownOsError(last_error));
+        }
+    } else {
+        // Open the file mapping
+        // `CreateFileMappingW` returns the handle to the object even if it
+        // exists already and sets ERROR_ALREADY_EXISTS. Ignore the error here.
+        new_map.map_handle = unsafe {
+            let high_size: u32 = ((map_size as u64 & 0xFFFF_FFFF_0000_0000_u64) >> 32) as u32;
+            let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF_u64) as u32;
+            let unique_id: Vec<u16> = OsStr::new(unique_id).encode_wide().chain(once(0)).collect();
+            CreateFileMappingW(
+                new_map.file_handle,
+                null_mut(),
+                PAGE_READWRITE,
+                high_size,
+                low_size,
+                unique_id.as_ptr(),
+            )
+        };
+        if new_map.map_handle == NULL {
+            let last_error = unsafe { GetLastError() };
+            return Err(ShmemError::MapCreateFailed(last_error));
         }
     }
 
