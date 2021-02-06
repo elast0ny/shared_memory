@@ -1,8 +1,10 @@
 use ::winapi::{
     shared::{
-        minwindef::{DWORD, LPVOID, MAX_PATH},
+        minwindef::{BOOL, DWORD, LPVOID, MAX_PATH},
         ntdef::{FALSE, NULL},
-        winerror::{ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND},
+        winerror::{
+            ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND,
+        },
     },
     um::{
         errhandlingapi::GetLastError,
@@ -18,7 +20,7 @@ use ::winapi::{
         minwinbase::FileRenameInfo,
         winbase::FILE_FLAG_DELETE_ON_CLOSE,
         winnt::{
-            DELETE, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+            DELETE, FILE_ATTRIBUTE_TEMPORARY, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
             GENERIC_READ, GENERIC_WRITE, HANDLE, MEMORY_BASIC_INFORMATION, PAGE_READWRITE, WCHAR,
         },
     },
@@ -98,64 +100,83 @@ impl Drop for MapData {
                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                     null_mut(),
                     OPEN_EXISTING,
-                    FILE_FLAG_DELETE_ON_CLOSE,
+                    FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE,
                     NULL,
                 )
             };
             if handle == INVALID_HANDLE_VALUE {
+                // If `GetLastError() == ERROR_FILE_NOT_FOUND` here the shared memory has already
+                // been deleted somewhere else (a different owner has been dropped).
+                // Do we need to close the handle here?
+                unsafe {
+                    CloseHandle(handle);
+                }
                 let last_error = unsafe { GetLastError() };
-                Err(ShmemError::UnknownOsError(last_error)).unwrap()
-            }
-            base_path.pop();
-            base_path.push(format!("{}_delete", self.unique_id.trim_start_matches("/")));
-            let new_filename: Vec<WCHAR> = base_path
-                .as_os_str()
-                .encode_wide()
-                .chain(OsStr::new("\0").encode_wide())
-                .collect();
-            // Allocate bytes to hold `rename_info` plus `new_filename` in the `FileName` field,
-            // see https://github.com/retep998/winapi-rs/issues/231
-            // `- 1` takes care of double-counting one element in `new_filename`
-            let buf_size =
-                size_of::<FILE_RENAME_INFO>() + size_of::<WCHAR>() * (new_filename.len() - 1);
-            let mut buf = vec![0u8; buf_size];
-            let rename_info = unsafe { &mut *(buf.as_mut_ptr() as *mut FILE_RENAME_INFO) };
-            // See https://stackoverflow.com/questions/36450222/moving-a-file-using-setfileinformationbyhandle
-            // for the required inputs.
-            rename_info.ReplaceIfExists = 1;
-            rename_info.RootDirectory = NULL;
-            // Length without terminating null. Is ignored according to the link above.
-            rename_info.FileNameLength = (size_of::<WCHAR>() * (new_filename.len() - 0)) as DWORD;
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    new_filename.as_ptr(),
-                    rename_info.FileName.as_mut_ptr(),
-                    new_filename.len(),
-                );
-            }
-            unsafe {
-                debug_assert_eq!(
-                    new_filename.as_slice(),
-                    std::slice::from_raw_parts(rename_info.FileName.as_ptr(), new_filename.len())
-                );
-            };
-            // Rename the backing file
-            if unsafe {
-                SetFileInformationByHandle(
-                    handle,
-                    FileRenameInfo,
-                    rename_info as *mut _ as LPVOID,
-                    buf_size as DWORD,
-                )
-            } == 0
-            {
-                let last_error = unsafe { GetLastError() };
-                Err(ShmemError::UnknownOsError(last_error)).unwrap()
-            }
-            // Close the file handle
-            if unsafe { CloseHandle(handle) } == 0 {
-                let last_error = unsafe { GetLastError() };
-                Err(ShmemError::UnknownOsError(last_error)).unwrap()
+                if last_error != ERROR_FILE_NOT_FOUND {
+                    Err(ShmemError::UnknownOsError(last_error)).unwrap()
+                }
+            } else {
+                // The backing file still exists and has not been renamed, but may be renamed by the time
+                // `SetFileInformationByHandle` is called. Handle that case with an error at the call site.
+                base_path.pop();
+                base_path.push(format!("{}_delete", self.unique_id.trim_start_matches("/")));
+                let new_filename: Vec<WCHAR> = base_path
+                    .as_os_str()
+                    .encode_wide()
+                    .chain(OsStr::new("\0").encode_wide())
+                    .collect();
+                // Allocate bytes to hold `rename_info` plus `new_filename` in the `FileName` field,
+                // see https://github.com/retep998/winapi-rs/issues/231
+                // `- 1` takes care of double-counting one element in `new_filename`
+                let buf_size =
+                    size_of::<FILE_RENAME_INFO>() + size_of::<WCHAR>() * (new_filename.len() - 1);
+                let mut buf = vec![0u8; buf_size];
+                let rename_info = unsafe { &mut *(buf.as_mut_ptr() as *mut FILE_RENAME_INFO) };
+                // See https://stackoverflow.com/questions/36450222/moving-a-file-using-setfileinformationbyhandle
+                // for the required inputs.
+                rename_info.ReplaceIfExists = true as BOOL;
+                rename_info.RootDirectory = NULL;
+                // Length without terminating null. Is ignored according to the link above.
+                rename_info.FileNameLength =
+                    (size_of::<WCHAR>() * (new_filename.len() - 0)) as DWORD;
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        new_filename.as_ptr(),
+                        rename_info.FileName.as_mut_ptr(),
+                        new_filename.len(),
+                    );
+                }
+                unsafe {
+                    debug_assert_eq!(
+                        new_filename.as_slice(),
+                        std::slice::from_raw_parts(
+                            rename_info.FileName.as_ptr(),
+                            new_filename.len()
+                        )
+                    );
+                };
+                // Rename the backing file
+                if unsafe {
+                    SetFileInformationByHandle(
+                        handle,
+                        FileRenameInfo,
+                        rename_info as *mut _ as LPVOID,
+                        buf_size as DWORD,
+                    )
+                } == 0
+                {
+                    let last_error = unsafe { GetLastError() };
+                    // The file may have been renamed somewhere else in the meantime,
+                    // causing ERROR_ACCESS_DENIED.
+                    if last_error != ERROR_ACCESS_DENIED {
+                        Err(ShmemError::UnknownOsError(last_error)).unwrap()
+                    }
+                }
+                // Close the file handle
+                if unsafe { CloseHandle(handle) } == 0 {
+                    let last_error = unsafe { GetLastError() };
+                    Err(ShmemError::UnknownOsError(last_error)).unwrap()
+                }
             }
         }
     }
@@ -205,7 +226,8 @@ fn get_tmp_dir() -> Result<PathBuf, ShmemError> {
 pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
     //In addition to being the return value, the Drop impl of this helps clean up on failure
     let mut new_map: MapData = MapData {
-        owner: true,
+        // Set this to true just before returning to avoid running non-cleanup code on drop.
+        owner: false,
         file_handle: NULL,
         unique_id: String::from(unique_id),
         map_handle: NULL,
@@ -229,7 +251,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             null_mut(),
             CREATE_NEW,
-            FILE_ATTRIBUTE_NORMAL,
+            FILE_ATTRIBUTE_TEMPORARY,
             NULL,
         )
     };
@@ -272,6 +294,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
         return Err(ShmemError::MapCreateFailed(last_error));
     }
 
+    new_map.owner = true;
     Ok(new_map)
 }
 
@@ -322,7 +345,7 @@ pub fn open_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemEr
                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                     null_mut(),
                     OPEN_EXISTING,
-                    FILE_ATTRIBUTE_NORMAL,
+                    FILE_ATTRIBUTE_TEMPORARY,
                     NULL,
                 )
             };
