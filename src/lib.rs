@@ -177,7 +177,7 @@ impl ShmemConf {
             None => return Err(ShmemError::NoLinkOrOsId),
         };
 
-        let mapping = os_impl::open_mapping(os_id)?;
+        let mapping = os_impl::open_mapping(os_id, self.size)?;
 
         self.size = mapping.map_size;
         self.owner = false;
@@ -204,7 +204,12 @@ impl Shmem {
     ///
     /// Warning : You must ensure at least one process owns the mapping in order to ensure proper cleanup code is ran
     pub fn set_owner(&mut self, is_owner: bool) -> bool {
-        #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "macos"))]
+        #[cfg(any(
+            target_os = "freebsd",
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows"
+        ))]
         self.mapping.set_owner(is_owner);
 
         let prev_val = self.config.owner;

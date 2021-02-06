@@ -124,7 +124,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
 }
 
 /// Opens an existing mapping specified by its uid
-pub fn open_mapping(unique_id: &str) -> Result<MapData, ShmemError> {
+pub fn open_mapping(unique_id: &str, _map_size: usize) -> Result<MapData, ShmemError> {
     //Open shared memory
     let shmem_fd = match shm_open(
         unique_id,
