@@ -86,7 +86,7 @@ impl Drop for MapData {
         // on unix.
         if self.owner {
             let mut base_path = get_tmp_dir().unwrap();
-            base_path.push(self.unique_id.trim_start_matches("/"));
+            base_path.push(self.unique_id.trim_start_matches('/'));
             // Encode the file path as a null-terminated UTF-16 sequence
             let file_path: Vec<WCHAR> = base_path
                 .as_os_str()
@@ -121,7 +121,7 @@ impl Drop for MapData {
                 base_path.pop();
                 base_path.push(format!(
                     "{}_deleted",
-                    self.unique_id.trim_start_matches("/")
+                    self.unique_id.trim_start_matches('/')
                 ));
                 let new_filename: Vec<WCHAR> = base_path
                     .as_os_str()
@@ -141,7 +141,7 @@ impl Drop for MapData {
                 rename_info.RootDirectory = NULL;
                 // Length without terminating null. Is ignored according to the link above.
                 rename_info.FileNameLength =
-                    (size_of::<WCHAR>() * (new_filename.len() - 0)) as DWORD;
+                    (size_of::<WCHAR>() * (new_filename.len() - 1)) as DWORD;
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         new_filename.as_ptr(),
@@ -240,7 +240,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
 
     // Create file to back the shared memory
     let mut base_path = get_tmp_dir()?;
-    base_path.push(unique_id.trim_start_matches("/"));
+    base_path.push(unique_id.trim_start_matches('/'));
     // Encode the file path as a null-terminated UTF-16 sequence
     let file_path: Vec<WCHAR> = base_path
         .as_os_str()
@@ -324,7 +324,7 @@ pub fn open_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemEr
     // succeed even if the mmapped file has been renamed when dropping owning `MapData` if other mappings are
     // still open. Posix shared memory doesn't allow that, see the `shm_unlink()` docs.
     let mut base_path = get_tmp_dir().unwrap();
-    base_path.push(unique_id.trim_start_matches("/"));
+    base_path.push(unique_id.trim_start_matches('/'));
     // Encode the file path as a null-terminated UTF-16 sequence
     let file_path: Vec<WCHAR> = base_path
         .as_os_str()
