@@ -1,6 +1,6 @@
 use ::winapi::{
     shared::{
-        minwindef::{BOOL, DWORD, LPVOID, MAX_PATH},
+        minwindef::{BOOL, DWORD, LPVOID},
         ntdef::NULL,
         winerror::{
             ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND,
@@ -9,7 +9,7 @@ use ::winapi::{
     um::{
         errhandlingapi::GetLastError,
         fileapi::{
-            CreateFileW, GetTempPathW, SetFileInformationByHandle, CREATE_NEW, FILE_RENAME_INFO,
+            CreateFileW, SetFileInformationByHandle, CREATE_NEW, FILE_RENAME_INFO,
             OPEN_EXISTING,
         },
         handleapi::{CloseHandle, INVALID_HANDLE_VALUE},
@@ -28,11 +28,11 @@ use ::winapi::{
 
 use crate::ShmemError;
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::io::ErrorKind;
 use std::iter::once;
 use std::mem::size_of;
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::ptr::null_mut;
 
@@ -106,11 +106,7 @@ impl Drop for MapData {
             };
             if handle == INVALID_HANDLE_VALUE {
                 // If `GetLastError() == ERROR_FILE_NOT_FOUND` here the shared memory has already
-                // been deleted somewhere else (a different owner has been dropped).
-                // Do we need to close the handle here?
-                unsafe {
-                    CloseHandle(handle);
-                }
+                // been deleted somewhere else (a different owner has been dropped)
                 let last_error = unsafe { GetLastError() };
                 if last_error != ERROR_FILE_NOT_FOUND {
                     Err(ShmemError::UnknownOsError(last_error)).unwrap()
@@ -196,27 +192,9 @@ impl MapData {
 /// Returns the path to a temporary directory in which to store files backing the shared memory. If it
 /// doesn't exist, the directory is created.
 fn get_tmp_dir() -> Result<PathBuf, ShmemError> {
-    let mut buffer: [WCHAR; MAX_PATH] = [0; MAX_PATH];
-    let len = unsafe { GetTempPathW(MAX_PATH as DWORD, buffer.as_mut_ptr()) };
-    let mut path: PathBuf = if len == 0 {
-        let last_error = unsafe { GetLastError() };
-        return Err(ShmemError::WindowsTempDirError(Some(last_error)));
-    } else if len > MAX_PATH as DWORD {
-        let mut buffer = Vec::with_capacity(len as usize);
-        let new_len = unsafe { GetTempPathW(len, buffer.as_mut_ptr()) };
-        if new_len == 0 {
-            let last_error = unsafe { GetLastError() };
-            return Err(ShmemError::WindowsTempDirError(Some(last_error)));
-        } else if new_len > len {
-            unreachable!()
-        } else {
-            OsString::from_wide(&buffer[..new_len as usize]).into()
-        }
-    } else {
-        OsString::from_wide(&buffer[..len as usize]).into()
-    };
+    let mut path = std::env::temp_dir();
     path.push("shared_memory-rs");
-    match std::fs::create_dir(path.as_path()) {
+    match std::fs::create_dir_all(path.as_path()) {
         Ok(_) => Ok(path),
         Err(err) => match err.kind() {
             ErrorKind::AlreadyExists => Ok(path),
