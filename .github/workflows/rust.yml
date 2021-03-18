@@ -44,3 +44,9 @@ jobs:
         with:
           command: build
           args: --all
+      - name: Examples
+        uses: actions-rs/cargo@v1
+        env: RUST_LOG=trace
+        with:
+          command: run
+          args: --all-features --example mutex -- 2
