@@ -23,7 +23,7 @@ cfg_if::cfg_if! {
 use crate::log::*;
 
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write, ErrorKind};
+use std::io::{ErrorKind, Read, Write};
 
 use std::fs::remove_file;
 use std::path::{Path, PathBuf};
@@ -33,7 +33,6 @@ use ::fs2::FileExt;
 
 mod error;
 pub use error::*;
-
 
 //Load up the proper OS implementation
 cfg_if! {
@@ -119,7 +118,7 @@ impl ShmemConf {
             debug!("Creating file link that points to mapping");
             let mut open_options: OpenOptions = OpenOptions::new();
             open_options.write(true);
-            
+
             if self.overwrite_flink {
                 open_options.create(true).truncate(true);
             } else {
@@ -134,8 +133,10 @@ impl ShmemConf {
                         return Err(ShmemError::LinkCreateFailed(e));
                     }
                     Some(f)
-                },
-                Err(e) if e.kind() == ErrorKind::AlreadyExists => return Err(ShmemError::LinkExists),
+                }
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+                    return Err(ShmemError::LinkExists)
+                }
                 Err(e) => return Err(ShmemError::LinkCreateFailed(e)),
             }
         } else {
@@ -156,8 +157,8 @@ impl ShmemConf {
                             if fout.is_some() {
                                 let _ = std::fs::remove_file(self.flink_path.as_ref().unwrap());
                             }
-                            return Err(e)
-                        },
+                            return Err(e);
+                        }
                     };
                 }
             }
@@ -204,7 +205,7 @@ impl ShmemConf {
                 Ok(f) => {
                     f.lock_shared().unwrap();
                     f
-                },
+                }
                 Err(e) => return Err(ShmemError::LinkOpenFailed(e)),
             };
             let mut contents: Vec<u8> = Vec::new();
@@ -213,7 +214,7 @@ impl ShmemConf {
                 return Err(ShmemError::LinkReadFailed(e));
             }
             let _ = f.unlock();
-            
+
             let link_os_id = match String::from_utf8(contents) {
                 Ok(s) => s,
                 Err(_) => return Err(ShmemError::LinkDoesNotExist),
