@@ -53,7 +53,7 @@ impl Drop for MapData {
     fn drop(&mut self) {
         //Unmap memory from our process
         if self.map_ptr as *mut _ != NULL {
-            debug!("UnmapViewOfFile(map_ptr:{:p})", self.map_ptr);
+            trace!("UnmapViewOfFile(map_ptr:{:p})", self.map_ptr);
             unsafe {
                 UnmapViewOfFile(self.map_ptr as *mut _);
             }
@@ -61,7 +61,7 @@ impl Drop for MapData {
 
         //Close our mapping
         if self.map_handle as *mut _ != NULL {
-            debug!("CloseHandle(map_handle:{:p})", self.map_handle);
+            trace!("CloseHandle(map_handle:{:p})", self.map_handle);
             unsafe {
                 CloseHandle(self.map_handle);
             }
@@ -191,7 +191,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
         )
     };
     let last_error = unsafe { GetLastError() };
-    debug!(
+    trace!(
         "CreateFileMappingW({:p}, NULL, {:X}, {}, {}, '{}') == {:p}",
         new_map.persistent_file.as_raw_handle(),
         PAGE_READWRITE,
@@ -213,7 +213,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
         unsafe { MapViewOfFile(new_map.map_handle, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0) } as _;
 
     let last_error = unsafe { GetLastError() };
-    debug!(
+    trace!(
         "MapViewOfFile({:p}, {:X}, 0, 0, 0) == {:p}",
         new_map.map_handle,
         FILE_MAP_READ | FILE_MAP_WRITE,
@@ -277,7 +277,7 @@ pub fn open_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemEr
         )
     };
     let last_error = unsafe { GetLastError() };
-    debug!(
+    trace!(
         "CreateFileMappingW({:p}, NULL, {:X}, {}, {}, '{}') == {:p}",
         new_map.persistent_file.as_raw_handle(),
         PAGE_READWRITE,
@@ -295,7 +295,7 @@ pub fn open_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemEr
     new_map.map_ptr =
         unsafe { MapViewOfFile(new_map.map_handle, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0) } as _;
     let last_error = unsafe { GetLastError() };
-    debug!(
+    trace!(
         "MapViewOfFile({:p}, {:X}, 0, 0, 0) == {:p}",
         new_map.map_handle,
         FILE_MAP_READ | FILE_MAP_WRITE,
