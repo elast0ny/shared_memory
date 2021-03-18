@@ -5,7 +5,7 @@ use clap::{App, Arg};
 use raw_sync::locks::*;
 use shared_memory::*;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     let matches = App::new("Mutex Example")
         .about("Spawns N threads that increment a value to 10 using a mutex")
         .arg(
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Invalid number passed for num_threads");
     if num_threads <= 1 {
         println!("num_threads should be 2 or more");
-        return Ok(());
+        return;
     }
     let mut threads = Vec::with_capacity(num_threads);
     let _ = std::fs::remove_file("mutex_mapping");
@@ -40,8 +40,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for t in threads.drain(..) {
         t.join().unwrap();
     }
-
-    Ok(())
 }
 
 fn increment_value(shmem_flink: &str, thread_num: usize) {
