@@ -2,10 +2,12 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::thread;
 
 use clap::{App, Arg};
+use log::*;
 use raw_sync::locks::*;
 use shared_memory::*;
 
 fn main() {
+    env_logger::init();
     let matches = App::new("Mutex Example")
         .about("Spawns N threads that increment a value to 10 using a mutex")
         .arg(
@@ -21,8 +23,8 @@ fn main() {
         .unwrap()
         .parse()
         .expect("Invalid number passed for num_threads");
-    if num_threads <= 1 {
-        println!("num_threads should be 2 or more");
+    if num_threads < 1 {
+        info!("num_threads should be 2 or more");
         return;
     }
     let mut threads = Vec::with_capacity(num_threads);
@@ -48,7 +50,7 @@ fn increment_value(shmem_flink: &str, thread_num: usize) {
         Ok(m) => m,
         Err(ShmemError::LinkExists) => ShmemConf::new().flink(shmem_flink).open().unwrap(),
         Err(e) => {
-            println!(
+            info!(
                 "Unable to create or open shmem flink {} : {}",
                 shmem_flink, e
             );
@@ -99,12 +101,13 @@ fn increment_value(shmem_flink: &str, thread_num: usize) {
             let mut guard = mutex.lock().unwrap();
             // Cast mutex data to &mut u8
             let val: &mut u8 = unsafe { &mut **guard };
-            if *val > 10 {
+            if *val > 5 {
+                info!("[thread#{}] done !", thread_num);
                 return;
             }
 
             // Print contents and increment value
-            println!("[thread#{}] Val : {}", thread_num, *val);
+            info!("[thread#{}] Val : {}", thread_num, *val);
             *val += 1;
 
             // Hold lock for a second
