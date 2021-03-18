@@ -1,6 +1,5 @@
 # shared_memory
-
-[![Build Status](https://travis-ci.org/elast0ny/shared_memory-rs.svg?branch=master)](https://travis-ci.org/elast0ny/shared_memory-rs)
+[![Build Status](https://github.com/elast0ny/shared_memory-rs/workflows/build/badge.svg)](https://github.com/elast0ny/shared_memory-rs/actions?query=workflow%3Abuild)
 [![crates.io](https://img.shields.io/crates/v/shared_memory.svg)](https://crates.io/crates/shared_memory)
 [![mio](https://docs.rs/shared_memory/badge.svg)](https://docs.rs/shared_memory/)
 ![Lines of Code](https://tokei.rs/b1/github/elast0ny/shared_memory-rs)
