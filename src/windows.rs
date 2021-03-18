@@ -1,46 +1,44 @@
 use ::winapi::{
-    shared::{
-        minwindef::{BOOL, DWORD, LPVOID},
-        ntdef::NULL,
-        winerror::{
-            ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND,
-        },
-    },
+    shared::{ntdef::NULL, winerror::ERROR_ALREADY_EXISTS},
     um::{
         errhandlingapi::GetLastError,
-        fileapi::{
-            CreateFileW, SetFileInformationByHandle, CREATE_NEW, FILE_RENAME_INFO,
-            OPEN_EXISTING,
-        },
-        handleapi::{CloseHandle, INVALID_HANDLE_VALUE},
+        handleapi::CloseHandle,
         memoryapi::{
             CreateFileMappingW, MapViewOfFile, UnmapViewOfFile, VirtualQuery, FILE_MAP_READ,
             FILE_MAP_WRITE,
         },
-        minwinbase::FileRenameInfo,
         winbase::FILE_FLAG_DELETE_ON_CLOSE,
         winnt::{
             DELETE, FILE_ATTRIBUTE_TEMPORARY, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-            GENERIC_READ, GENERIC_WRITE, HANDLE, MEMORY_BASIC_INFORMATION, PAGE_READWRITE, WCHAR,
+            GENERIC_READ, GENERIC_WRITE, HANDLE, MEMORY_BASIC_INFORMATION, PAGE_READWRITE,
         },
     },
 };
 
+#[allow(unused_imports)]
+use crate::log::*;
 use crate::ShmemError;
 
 use std::ffi::OsStr;
+use std::fs::{File, OpenOptions};
 use std::io::ErrorKind;
 use std::iter::once;
 use std::mem::size_of;
-use std::os::windows::ffi::OsStrExt;
+use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt, io::AsRawHandle};
 use std::path::PathBuf;
 use std::ptr::null_mut;
 
 pub struct MapData {
     owner: bool,
-    file_handle: HANDLE,
+
     ///The handle to our open mapping
     map_handle: HANDLE,
+
+    /// This file is used for shmem persistence. When an owner wants to drop the mapping,
+    /// it opens the file with FILE_FLAG_DELETE_ON_CLOSE, renames the file and closes it.
+    /// This makes it so future calls to open the old mapping will fail (as it was renamed) and
+    /// deletes the renamed file once all handles have been closed.
+    persistent_file: File,
 
     //Shared mapping uid
     pub unique_id: String,
@@ -51,10 +49,11 @@ pub struct MapData {
 }
 ///Teardown UnmapViewOfFile and close CreateMapping handle
 impl Drop for MapData {
-    ///Takes care of properly closing the SharedMem (munmap(), shmem_unlink(), close())
+    ///Takes care of properly closing the SharedMem
     fn drop(&mut self) {
         //Unmap memory from our process
         if self.map_ptr as *mut _ != NULL {
+            debug!("UnmapViewOfFile(map_ptr:{:p})", self.map_ptr);
             unsafe {
                 UnmapViewOfFile(self.map_ptr as *mut _);
             }
@@ -62,15 +61,9 @@ impl Drop for MapData {
 
         //Close our mapping
         if self.map_handle as *mut _ != NULL {
+            debug!("CloseHandle(map_handle:{:p})", self.map_handle);
             unsafe {
                 CloseHandle(self.map_handle);
-            }
-        }
-
-        // Close the handle to the mmapped file
-        if self.file_handle as *mut _ != NULL {
-            unsafe {
-                CloseHandle(self.file_handle);
             }
         }
 
@@ -86,97 +79,44 @@ impl Drop for MapData {
         // on unix.
         if self.owner {
             let mut base_path = get_tmp_dir().unwrap();
-            base_path.push(self.unique_id.trim_start_matches('/'));
-            // Encode the file path as a null-terminated UTF-16 sequence
-            let file_path: Vec<WCHAR> = base_path
-                .as_os_str()
-                .encode_wide()
-                .chain(OsStr::new("\0").encode_wide())
-                .collect();
-            let handle = unsafe {
-                CreateFileW(
-                    file_path.as_ptr(),
-                    GENERIC_READ | GENERIC_WRITE | DELETE,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                    null_mut(),
-                    OPEN_EXISTING,
-                    FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE,
-                    NULL,
-                )
-            };
-            if handle == INVALID_HANDLE_VALUE {
-                // If `GetLastError() == ERROR_FILE_NOT_FOUND` here the shared memory has already
-                // been deleted somewhere else (a different owner has been dropped)
-                let last_error = unsafe { GetLastError() };
-                if last_error != ERROR_FILE_NOT_FOUND {
-                    Err(ShmemError::UnknownOsError(last_error)).unwrap()
-                }
-            } else {
-                // The mmapped file still exists and has not been renamed, but may be renamed by the time
-                // `SetFileInformationByHandle` is called. Handle that case with an error at the call site.
-                base_path.pop();
-                base_path.push(format!(
-                    "{}_deleted",
-                    self.unique_id.trim_start_matches('/')
-                ));
-                let new_filename: Vec<WCHAR> = base_path
-                    .as_os_str()
-                    .encode_wide()
-                    .chain(OsStr::new("\0").encode_wide())
-                    .collect();
-                // Allocate bytes to hold `rename_info` plus `new_filename` in the `FileName` field,
-                // see https://github.com/retep998/winapi-rs/issues/231
-                // `- 1` takes care of double-counting one element in `new_filename`
-                let buf_size =
-                    size_of::<FILE_RENAME_INFO>() + size_of::<WCHAR>() * (new_filename.len() - 1);
-                let mut buf = vec![0u8; buf_size];
-                let rename_info = unsafe { &mut *(buf.as_mut_ptr() as *mut FILE_RENAME_INFO) };
-                // See https://stackoverflow.com/questions/36450222/moving-a-file-using-setfileinformationbyhandle
-                // for the required inputs.
-                rename_info.ReplaceIfExists = true as BOOL;
-                rename_info.RootDirectory = NULL;
-                // Length without terminating null. Is ignored according to the link above.
-                rename_info.FileNameLength =
-                    (size_of::<WCHAR>() * (new_filename.len() - 1)) as DWORD;
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        new_filename.as_ptr(),
-                        rename_info.FileName.as_mut_ptr(),
-                        new_filename.len(),
+
+            // 1. Set file attributes so that it deletes itself once everyone has closed it
+            let file_path = base_path.join(self.unique_id.trim_start_matches('/'));
+            debug!("Setting mapping to delete after everyone has closed it");
+            match OpenOptions::new()
+                .access_mode(GENERIC_READ | GENERIC_WRITE | DELETE)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+                .create(false)
+                .attributes(FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE)
+                .open(&file_path)
+            {
+                Ok(_) => {
+                    // 2. Rename file to prevent further use
+                    base_path.push(&format!(
+                        "{}_deleted",
+                        self.unique_id.trim_start_matches('/')
+                    ));
+                    debug!(
+                        "Renaming {} to {}",
+                        file_path.to_string_lossy(),
+                        base_path.to_string_lossy()
                     );
-                }
-                unsafe {
-                    debug_assert_eq!(
-                        new_filename.as_slice(),
-                        std::slice::from_raw_parts(
-                            rename_info.FileName.as_ptr(),
-                            new_filename.len()
-                        )
-                    );
-                };
-                // Rename the mmapped file
-                if unsafe {
-                    SetFileInformationByHandle(
-                        handle,
-                        FileRenameInfo,
-                        rename_info as *mut _ as LPVOID,
-                        buf_size as DWORD,
-                    )
-                } == 0
-                {
-                    let last_error = unsafe { GetLastError() };
-                    // The file may have been renamed somewhere else in the meantime,
-                    // causing ERROR_ACCESS_DENIED.
-                    if last_error != ERROR_ACCESS_DENIED {
-                        Err(ShmemError::UnknownOsError(last_error)).unwrap()
+                    if let Err(_e) = std::fs::rename(&file_path, &base_path) {
+                        debug!(
+                            "Failed to rename persistent_file {} : {}",
+                            file_path.to_string_lossy(),
+                            _e
+                        );
                     }
                 }
-                // Close the file handle
-                if unsafe { CloseHandle(handle) } == 0 {
-                    let last_error = unsafe { GetLastError() };
-                    Err(ShmemError::UnknownOsError(last_error)).unwrap()
+                Err(_e) => {
+                    debug!(
+                        "Failed to set DELETE_ON_CLOSE on persistent_file {} : {}",
+                        file_path.to_string_lossy(),
+                        _e
+                    );
                 }
-            }
+            };
         }
     }
 }
@@ -192,66 +132,57 @@ impl MapData {
 /// Returns the path to a temporary directory in which to store files backing the shared memory. If it
 /// doesn't exist, the directory is created.
 fn get_tmp_dir() -> Result<PathBuf, ShmemError> {
+    debug!("Getting & creating shared_memory-rs temp dir");
     let mut path = std::env::temp_dir();
     path.push("shared_memory-rs");
     match std::fs::create_dir_all(path.as_path()) {
         Ok(_) => Ok(path),
-        Err(err) => match err.kind() {
-            ErrorKind::AlreadyExists => Ok(path),
-            _ => Err(ShmemError::WindowsTempDirError(None)),
-        },
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok(path),
+        Err(e) => Err(ShmemError::UnknownOsError(e.raw_os_error().unwrap() as _)),
     }
 }
 
 //Creates a mapping specified by the uid and size
 pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
-    //In addition to being the return value, the Drop impl of this helps clean up on failure
+    // Create file to back the shared memory
+    let mut file_path = get_tmp_dir()?;
+    file_path.push(unique_id.trim_start_matches('/'));
+    debug!(
+        "Creating persistent_file at {}",
+        file_path.to_string_lossy()
+    );
+
+    let persistent_file = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .create_new(true)
+        .attributes(FILE_ATTRIBUTE_TEMPORARY)
+        .open(&file_path)
+    {
+        Ok(f) => f,
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => return Err(ShmemError::MappingIdExists),
+        Err(e) => return Err(ShmemError::MapCreateFailed(e.raw_os_error().unwrap() as _)),
+    };
+
+    // Start using MapData ASAP to rely on auto cleanup through Drop
     let mut new_map: MapData = MapData {
-        // Set this to true just before returning to avoid running non-cleanup code on drop.
-        owner: false,
-        file_handle: NULL,
+        owner: true,
+        persistent_file,
         unique_id: String::from(unique_id),
         map_handle: NULL,
         map_size,
         map_ptr: null_mut(),
     };
 
-    // Create file to back the shared memory
-    let mut base_path = get_tmp_dir()?;
-    base_path.push(unique_id.trim_start_matches('/'));
-    // Encode the file path as a null-terminated UTF-16 sequence
-    let file_path: Vec<WCHAR> = base_path
-        .as_os_str()
-        .encode_wide()
-        .chain(OsStr::new("\0").encode_wide())
-        .collect();
-    new_map.file_handle = unsafe {
-        CreateFileW(
-            file_path.as_ptr(),
-            GENERIC_READ | GENERIC_WRITE,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            null_mut(),
-            CREATE_NEW,
-            FILE_ATTRIBUTE_TEMPORARY,
-            NULL,
-        )
-    };
-    if new_map.file_handle == INVALID_HANDLE_VALUE {
-        let last_error = unsafe { GetLastError() };
-        if last_error == ERROR_FILE_EXISTS {
-            return Err(ShmemError::MappingIdExists);
-        } else {
-            return Err(ShmemError::MapCreateFailed(last_error));
-        }
-    }
-
     //Create Mapping
+    debug!("Creating memory mapping");
+    let high_size: u32 = ((map_size as u64 & 0xFFFF_FFFF_0000_0000_u64) >> 32) as u32;
+    let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF_u64) as u32;
+    let unique_id: Vec<u16> = OsStr::new(unique_id).encode_wide().chain(once(0)).collect();
     new_map.map_handle = unsafe {
-        let high_size: u32 = ((map_size as u64 & 0xFFFF_FFFF_0000_0000_u64) >> 32) as u32;
-        let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF_u64) as u32;
-        let unique_id: Vec<u16> = OsStr::new(unique_id).encode_wide().chain(once(0)).collect();
         CreateFileMappingW(
-            new_map.file_handle,
+            new_map.persistent_file.as_raw_handle() as _,
             null_mut(),
             PAGE_READWRITE,
             high_size,
@@ -260,6 +191,15 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
         )
     };
     let last_error = unsafe { GetLastError() };
+    debug!(
+        "CreateFileMappingW({:p}, NULL, {:X}, {}, {}, '{}') == {:p}",
+        new_map.persistent_file.as_raw_handle(),
+        PAGE_READWRITE,
+        high_size,
+        low_size,
+        new_map.unique_id,
+        new_map.map_handle
+    );
 
     if new_map.map_handle == NULL {
         return Err(ShmemError::MapCreateFailed(last_error));
@@ -268,95 +208,100 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
     }
 
     //Map mapping into address space
+    debug!("Loading mapping into address space");
     new_map.map_ptr =
         unsafe { MapViewOfFile(new_map.map_handle, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0) } as _;
+
+    let last_error = unsafe { GetLastError() };
+    debug!(
+        "MapViewOfFile({:p}, {:X}, 0, 0, 0) == {:p}",
+        new_map.map_handle,
+        FILE_MAP_READ | FILE_MAP_WRITE,
+        new_map.map_ptr
+    );
+
     if new_map.map_ptr.is_null() {
-        let last_error = unsafe { GetLastError() };
         return Err(ShmemError::MapCreateFailed(last_error));
     }
 
-    new_map.owner = true;
     Ok(new_map)
 }
 
 //Opens an existing mapping specified by its uid
 pub fn open_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
-    //In addition to being the return value, the Drop impl of this helps clean up on failure
+    let mut file_path = get_tmp_dir()?;
+    file_path.push(unique_id.trim_start_matches('/'));
+    debug!(
+        "Openning persistent_file at {}",
+        file_path.to_string_lossy()
+    );
+
+    // Open the file backing the shared memory
+    let persistent_file = match OpenOptions::new()
+        .access_mode(GENERIC_READ | GENERIC_WRITE)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .create(false)
+        .attributes(FILE_ATTRIBUTE_TEMPORARY)
+        .open(&file_path)
+    {
+        Ok(f) => f,
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => return Err(ShmemError::MappingIdExists),
+        Err(e) => return Err(ShmemError::MapOpenFailed(e.raw_os_error().unwrap() as _)),
+    };
+
+    // Start using MapData ASAP to rely on auto cleanup through Drop
     let mut new_map: MapData = MapData {
         owner: false,
-        file_handle: NULL,
+        persistent_file,
         unique_id: String::from(unique_id),
         map_handle: NULL,
-        map_size: 0,
+        map_size,
         map_ptr: null_mut(),
     };
 
-    //Open existing mapping or create one fom the mmapped file
-    // ---------------------------------------------------
-    // See https://docs.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-createfilemappingw
-    // for why we don't need to flush the file views to disk to share the same memory between processes.
-    // "...file views derived from any file mapping object that is backed by the same file are coherent or
-    // identical at a specific time."
-    // ---------------------------------------------------
-    // Start by opening the mmapped file. Resist the temptation to try `OpenFileMappingW` directly, this will
-    // succeed even if the mmapped file has been renamed when dropping owning `MapData` if other mappings are
-    // still open. Posix shared memory doesn't allow that, see the `shm_unlink()` docs.
-    let mut base_path = get_tmp_dir().unwrap();
-    base_path.push(unique_id.trim_start_matches('/'));
-    // Encode the file path as a null-terminated UTF-16 sequence
-    let file_path: Vec<WCHAR> = base_path
-        .as_os_str()
-        .encode_wide()
-        .chain(OsStr::new("\0").encode_wide())
-        .collect();
-    new_map.file_handle = unsafe {
-        CreateFileW(
-            file_path.as_ptr(),
-            GENERIC_READ | GENERIC_WRITE,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    // Open the file mapping
+    // `CreateFileMappingW` returns the handle to the object even if it
+    // exists already and sets ERROR_ALREADY_EXISTS. Ignore the error here.
+    debug!("Openning memory mapping");
+    let high_size: u32 = ((map_size as u64 & 0xFFFF_FFFF_0000_0000_u64) >> 32) as u32;
+    let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF_u64) as u32;
+    let unique_id: Vec<u16> = OsStr::new(unique_id).encode_wide().chain(once(0)).collect();
+    new_map.map_handle = unsafe {
+        CreateFileMappingW(
+            new_map.persistent_file.as_raw_handle() as _,
             null_mut(),
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_TEMPORARY,
-            NULL,
+            PAGE_READWRITE,
+            high_size,
+            low_size,
+            unique_id.as_ptr(),
         )
     };
-    if new_map.file_handle == INVALID_HANDLE_VALUE {
-        // Can't open the mmapped file.
-        let last_error = unsafe { GetLastError() };
-        if last_error == ERROR_FILE_NOT_FOUND {
-            // The mmapped file doesn't exist.
-            return Err(ShmemError::MapOpenFailed(last_error));
-        } else {
-            return Err(ShmemError::UnknownOsError(last_error));
-        }
-    } else {
-        // Open the file mapping
-        // `CreateFileMappingW` returns the handle to the object even if it
-        // exists already and sets ERROR_ALREADY_EXISTS. Ignore the error here.
-        new_map.map_handle = unsafe {
-            let high_size: u32 = ((map_size as u64 & 0xFFFF_FFFF_0000_0000_u64) >> 32) as u32;
-            let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF_u64) as u32;
-            let unique_id: Vec<u16> = OsStr::new(unique_id).encode_wide().chain(once(0)).collect();
-            CreateFileMappingW(
-                new_map.file_handle,
-                null_mut(),
-                PAGE_READWRITE,
-                high_size,
-                low_size,
-                unique_id.as_ptr(),
-            )
-        };
-        if new_map.map_handle == NULL {
-            let last_error = unsafe { GetLastError() };
-            return Err(ShmemError::MapCreateFailed(last_error));
-        }
+    let last_error = unsafe { GetLastError() };
+    debug!(
+        "CreateFileMappingW({:p}, NULL, {:X}, {}, {}, '{}') == {:p}",
+        new_map.persistent_file.as_raw_handle(),
+        PAGE_READWRITE,
+        high_size,
+        low_size,
+        new_map.unique_id,
+        new_map.map_handle
+    );
+    if new_map.map_handle == NULL {
+        return Err(ShmemError::MapCreateFailed(last_error));
     }
 
     //Map mapping into address space
+    debug!("Loading mapping into address space");
     new_map.map_ptr =
         unsafe { MapViewOfFile(new_map.map_handle, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0) } as _;
+    let last_error = unsafe { GetLastError() };
+    debug!(
+        "MapViewOfFile({:p}, {:X}, 0, 0, 0) == {:p}",
+        new_map.map_handle,
+        FILE_MAP_READ | FILE_MAP_WRITE,
+        new_map.map_ptr
+    );
     if new_map.map_ptr.is_null() {
-        let last_error = unsafe { GetLastError() };
         return Err(ShmemError::MapOpenFailed(last_error));
     }
 

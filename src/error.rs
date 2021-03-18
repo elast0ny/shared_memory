@@ -12,7 +12,6 @@ pub enum ShmemError {
     MappingIdExists,
     MapCreateFailed(u32),
     MapOpenFailed(u32),
-    WindowsTempDirError(Option<u32>),
     UnknownOsError(u32),
 }
 
@@ -31,11 +30,6 @@ impl std::fmt::Display for ShmemError {
             ShmemError::MappingIdExists => f.write_str("Shared memory OS specific ID already exists"),
             ShmemError::MapCreateFailed(err) => write!(f, "Creating the shared memory failed, os error {}", err),
             ShmemError::MapOpenFailed(err) => write!(f, "Opening the shared memory failed, os error {}", err),
-            ShmemError::WindowsTempDirError(err) => if let Some(err) = err {
-                write!(f, "Finding the Windows Temp directory failed, os error {}", err)
-            } else {
-                write!(f, "Creating a Windows temporary directory failed.",)
-            },
             ShmemError::UnknownOsError(err) => write!(f, "An unexpected OS error occurred, os error {}", err),
         }
     }
