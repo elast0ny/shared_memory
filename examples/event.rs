@@ -1,6 +1,6 @@
+use log::*;
 use raw_sync::{events::*, Timeout};
 use shared_memory::*;
-use log::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
