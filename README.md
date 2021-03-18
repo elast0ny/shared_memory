@@ -2,7 +2,7 @@
 [![Build Status](https://github.com/elast0ny/shared_memory-rs/workflows/build/badge.svg)](https://github.com/elast0ny/shared_memory-rs/actions?query=workflow%3Abuild)
 [![crates.io](https://img.shields.io/crates/v/shared_memory.svg)](https://crates.io/crates/shared_memory)
 [![mio](https://docs.rs/shared_memory/badge.svg)](https://docs.rs/shared_memory/)
-![Lines of Code](https://tokei.rs/b1/github/elast0ny/shared_memory-rs)
+[![Lines of Code](https://tokei.rs/b1/github/elast0ny/shared_memory-rs?category=code)](https://tokei.rs/b1/github/elast0ny/shared_memory-rs?category=code)
 
 A crate that allows you to share memory between __processes__.
 
@@ -35,7 +35,10 @@ dual licensed as above, without any additional terms or conditions.
 
 ## Changelog
 
-### __0.11.0__
+### __0.12.X__
+- Windows implementation now follows POSIX behavior in regards to ownership and deletion, see [#59](https://github.com/elast0ny/shared_memory-rs/pull/59) for more details
+- Added feature gated debug logging ("logging" feature has to be enabled explicitly)
+### __0.11.X__
 This release breaks backwards compatibility and removes a bunch of previous features which hid many unsafe behaviors (automatically casting shared memory to Rust types).
 
 The release also marks the split between `shared_memory` and its synchronization primitives into a seperate crate `raw_sync`.
