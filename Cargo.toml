@@ -1,7 +1,7 @@
 [package]
 name = "shared_memory"
 description = "A user friendly crate that allows you to share memory between processes"
-version = "0.11.4"
+version = "0.12.0"
 authors = ["ElasT0ny <elast0ny00@gmail.com>"]
 license = "MIT OR Apache-2.0"
 edition = "2018"
@@ -18,9 +18,15 @@ exclude = [
     ".github/*"
 ]
 
+[features]
+default = []
+# Logging feature enables debug logs through the log crate
+logging = ["log"]
+
 [dependencies]
 cfg-if = "1.0"
 rand = "0.8"
+log = {version = "0", optional=true}
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.19"
@@ -32,3 +38,5 @@ winapi = { version = "0.3", features = ["ntdef", "winerror", "errhandlingapi", "
 [dev-dependencies]
 raw_sync = "0.1"
 clap ="2.33"
+env_logger = "0"
+log = "0"

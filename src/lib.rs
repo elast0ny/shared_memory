@@ -2,6 +2,26 @@
 //!
 //! For help on how to get started, take a look at the [examples](https://github.com/elast0ny/shared_memory-rs/tree/master/examples) !
 
+// Allow dependents to disable logging through the "logging" feature
+cfg_if::cfg_if! {
+    if #[cfg(feature = "logging")] {
+        pub(crate) use log;
+    } else {
+        #[allow(unused_macros)]
+        #[macro_use]
+        pub (crate) mod log {
+            macro_rules! trace (($($tt:tt)*) => {{}});
+            macro_rules! debug (($($tt:tt)*) => {{}});
+            macro_rules! info (($($tt:tt)*) => {{}});
+            macro_rules! warn  (($($tt:tt)*) => {{}});
+            macro_rules! error (($($tt:tt)*) => {{}});
+        }
+    }
+}
+
+#[allow(unused_imports)]
+use crate::log::*;
+
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 
@@ -39,6 +59,7 @@ impl Drop for ShmemConf {
         // Delete the flink if we are the owner of the mapping
         if self.owner {
             if let Some(flink_path) = self.flink_path.as_ref() {
+                debug!("Deleting file link {}", flink_path.to_string_lossy());
                 let _ = remove_file(flink_path);
             }
         }
@@ -107,8 +128,11 @@ impl ShmemConf {
             Some(ref specific_id) => os_impl::create_mapping(specific_id, self.size)?,
         };
 
+        debug!("Created shared memory mapping '{}'", mapping.unique_id);
+
         // Create flink
         if let Some(ref flink_path) = self.flink_path {
+            debug!("Creating file link that points to mapping");
             let mut open_options: OpenOptions = OpenOptions::new();
             open_options.write(true);
             if self.overwrite_flink {
@@ -131,6 +155,8 @@ impl ShmemConf {
                     });
                 }
             };
+
+            debug!("Created file link '{}'", flink_path.to_string_lossy());
         }
 
         self.owner = true;
@@ -146,11 +172,16 @@ impl ShmemConf {
     pub fn open(mut self) -> Result<Shmem, ShmemError> {
         // Must at least have a flink or an os_id
         if self.flink_path.is_none() && self.os_id.is_none() {
+            debug!("Open called with no file link or unique id...");
             return Err(ShmemError::NoLinkOrOsId);
         }
 
         // Get the os_id from the flink
         if let Some(ref flink_path) = self.flink_path {
+            debug!(
+                "Open shared memory from file link {}",
+                flink_path.to_string_lossy()
+            );
             let mut f = match File::open(flink_path) {
                 Ok(f) => f,
                 Err(e) => return Err(ShmemError::LinkOpenFailed(e)),
@@ -177,6 +208,7 @@ impl ShmemConf {
             None => return Err(ShmemError::NoLinkOrOsId),
         };
 
+        debug!("Openning shared memory id {}", os_id);
         let mapping = os_impl::open_mapping(os_id, self.size)?;
 
         self.size = mapping.map_size;
@@ -204,12 +236,6 @@ impl Shmem {
     ///
     /// Warning : You must ensure at least one process owns the mapping in order to ensure proper cleanup code is ran
     pub fn set_owner(&mut self, is_owner: bool) -> bool {
-        #[cfg(any(
-            target_os = "freebsd",
-            target_os = "linux",
-            target_os = "macos",
-            target_os = "windows"
-        ))]
         self.mapping.set_owner(is_owner);
 
         let prev_val = self.config.owner;
