@@ -62,16 +62,19 @@ fn increment_value(shmem_flink: &str, thread_num: usize) {
 
     // Get pointer to the shared memory
     let raw_ptr = shmem.as_ptr();
-    
+
     // WARNING: This is prone to race conditions as no sync/locking is used
     unsafe {
         while std::ptr::read_volatile(raw_ptr) < 100 {
-            
             // Increment shared value by one
             *raw_ptr += 1;
 
-            info!("[thread:{}] {}", thread_num, std::ptr::read_volatile(raw_ptr));
-            
+            info!(
+                "[thread:{}] {}",
+                thread_num,
+                std::ptr::read_volatile(raw_ptr)
+            );
+
             // Sleep for a bit
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
