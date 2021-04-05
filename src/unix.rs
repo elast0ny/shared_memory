@@ -4,6 +4,8 @@ use ::nix::sys::mman::{mmap, munmap, shm_open, shm_unlink, MapFlags, ProtFlags};
 use ::nix::sys::stat::{fstat, Mode};
 use ::nix::unistd::{close, ftruncate};
 
+#[allow(unused_imports)]
+use crate::log::*;
 use crate::ShmemError;
 
 use std::os::unix::io::RawFd;
@@ -30,12 +32,13 @@ impl Drop for MapData {
     fn drop(&mut self) {
         //Unmap memory
         if !self.map_ptr.is_null() {
-            match unsafe { munmap(self.map_ptr as *mut _, self.map_size) } {
-                Ok(_) => {}
-                Err(_e) => {
-                    //debug!("os_impl::Linux : Failed to munmap() shared memory mapping...");
-                    //debug!("{}", e);
-                }
+            trace!(
+                "munmap(map_ptr:{:p},map_size:{})",
+                self.map_ptr,
+                self.map_size
+            );
+            if let Err(_e) = unsafe { munmap(self.map_ptr as *mut _, self.map_size) } {
+                debug!("Failed to munmap() shared memory mapping : {}", _e);
             };
         }
 
@@ -43,25 +46,19 @@ impl Drop for MapData {
         if self.map_fd != 0 {
             //unlink shmem if we created it
             if self.owner {
-                match shm_unlink(self.unique_id.as_str()) {
-                    Ok(_) => {
-                        //debug!("shm_unlink()");
-                    }
-                    Err(_e) => {
-                        //debug!("os_impl::Linux : Failed to shm_unlink() shared memory name...");
-                        //debug!("{}", e);
-                    }
+                debug!("Deleting persistent mapping");
+                trace!("shm_unlink({})", self.unique_id.as_str());
+                if let Err(_e) = shm_unlink(self.unique_id.as_str()) {
+                    debug!("Failed to shm_unlink() shared memory : {}", _e);
                 };
             }
 
-            match close(self.map_fd) {
-                Ok(_) => {
-                    //debug!("close()");
-                }
-                Err(_e) => {
-                    //debug!("os_impl::Linux : Failed to close() shared memory file descriptor...");
-                    //debug!("{}", e);
-                }
+            trace!("close({})", self.map_fd);
+            if let Err(_e) = close(self.map_fd) {
+                debug!(
+                    "os_impl::Linux : Failed to close() shared memory file descriptor : {}",
+                    _e
+                );
             };
         }
     }
@@ -78,12 +75,22 @@ impl MapData {
 /// Creates a mapping specified by the uid and size
 pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
     //Create shared memory file descriptor
+    debug!("Creating persistent mapping at {}", unique_id);
     let shmem_fd = match shm_open(
         unique_id, //Unique name that usualy pops up in /dev/shm/
         OFlag::O_CREAT | OFlag::O_EXCL | OFlag::O_RDWR, //create exclusively (error if collision) and read/write to allow resize
         Mode::S_IRUSR | Mode::S_IWUSR,                  //Permission allow user+rw
     ) {
-        Ok(v) => v,
+        Ok(v) => {
+            trace!(
+                "shm_open({}, {:X}, {:X}) == {}",
+                unique_id,
+                OFlag::O_CREAT | OFlag::O_EXCL | OFlag::O_RDWR,
+                Mode::S_IRUSR | Mode::S_IWUSR,
+                v
+            );
+            v
+        }
         Err(nix::Error::Sys(Errno::EEXIST)) => return Err(ShmemError::MappingIdExists),
         Err(nix::Error::Sys(e)) => return Err(ShmemError::MapCreateFailed(e as u32)),
         _ => return Err(ShmemError::UnknownOsError(0xffff_ffff)),
@@ -98,6 +105,8 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
     };
 
     //Enlarge the memory descriptor file size to the requested map size
+    debug!("Creating memory mapping");
+    trace!("ftruncate({}, {})", new_map.map_fd, new_map.map_size);
     match ftruncate(new_map.map_fd, new_map.map_size as _) {
         Ok(_) => {}
         Err(nix::Error::Sys(e)) => return Err(ShmemError::UnknownOsError(e as u32)),
@@ -105,6 +114,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
     };
 
     //Put the mapping in our address space
+    debug!("Loading mapping into address space");
     new_map.map_ptr = match unsafe {
         mmap(
             null_mut(),                                   //Desired addr
@@ -115,7 +125,17 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
             0,                                            //Offset into fd
         )
     } {
-        Ok(v) => v as *mut _,
+        Ok(v) => {
+            trace!(
+                "mmap(NULL, {}, {:X}, {:X}, {}, 0) == {:p}",
+                new_map.map_size,
+                ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
+                MapFlags::MAP_SHARED,
+                new_map.map_fd,
+                v
+            );
+            v as *mut _
+        }
         Err(nix::Error::Sys(e)) => return Err(ShmemError::MapCreateFailed(e as u32)),
         _ => return Err(ShmemError::UnknownOsError(0xffff_ffff)),
     };
@@ -126,12 +146,22 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
 /// Opens an existing mapping specified by its uid
 pub fn open_mapping(unique_id: &str, _map_size: usize) -> Result<MapData, ShmemError> {
     //Open shared memory
+    debug!("Openning persistent mapping at {}", unique_id);
     let shmem_fd = match shm_open(
         unique_id,
         OFlag::O_RDWR, //Open read write
         Mode::S_IRUSR,
     ) {
-        Ok(v) => v,
+        Ok(v) => {
+            trace!(
+                "shm_open({}, {:X}, {:X}) == {}",
+                unique_id,
+                OFlag::O_RDWR,
+                Mode::S_IRUSR,
+                v
+            );
+            v
+        }
         Err(nix::Error::Sys(e)) => return Err(ShmemError::MapOpenFailed(e as u32)),
         _ => return Err(ShmemError::UnknownOsError(0xffff_ffff)),
     };
@@ -152,6 +182,7 @@ pub fn open_mapping(unique_id: &str, _map_size: usize) -> Result<MapData, ShmemE
     };
 
     //Map memory into our address space
+    debug!("Loading mapping into address space");
     new_map.map_ptr = match unsafe {
         mmap(
             null_mut(),                                   //Desired addr
@@ -162,7 +193,17 @@ pub fn open_mapping(unique_id: &str, _map_size: usize) -> Result<MapData, ShmemE
             0,                                            //Offset into fd
         )
     } {
-        Ok(v) => v as *mut _,
+        Ok(v) => {
+            trace!(
+                "mmap(NULL, {}, {:X}, {:X}, {}, 0) == {:p}",
+                new_map.map_size,
+                ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
+                MapFlags::MAP_SHARED,
+                new_map.map_fd,
+                v
+            );
+            v as *mut _
+        }
         Err(nix::Error::Sys(e)) => return Err(ShmemError::MapOpenFailed(e as u32)),
         _ => return Err(ShmemError::UnknownOsError(0xffff_ffff)),
     };

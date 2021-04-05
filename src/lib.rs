@@ -23,12 +23,13 @@ cfg_if::cfg_if! {
 use crate::log::*;
 
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 
 use std::fs::remove_file;
 use std::path::{Path, PathBuf};
 
 use ::cfg_if::*;
+use ::fs2::FileExt;
 
 mod error;
 pub use error::*;
@@ -112,6 +113,36 @@ impl ShmemConf {
             return Err(ShmemError::MapSizeZero);
         }
 
+        // Create flink
+        let fout = if let Some(ref flink_path) = self.flink_path {
+            debug!("Creating file link that points to mapping");
+            let mut open_options: OpenOptions = OpenOptions::new();
+            open_options.write(true);
+
+            if self.overwrite_flink {
+                open_options.create(true).truncate(true);
+            } else {
+                open_options.create_new(true);
+            }
+
+            match open_options.open(flink_path) {
+                Ok(f) => {
+                    debug!("Created file link '{}'", flink_path.to_string_lossy());
+                    // Lock the file asap so no one reads from it yet...
+                    if let Err(e) = f.try_lock_exclusive() {
+                        return Err(ShmemError::LinkCreateFailed(e));
+                    }
+                    Some(f)
+                }
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+                    return Err(ShmemError::LinkExists)
+                }
+                Err(e) => return Err(ShmemError::LinkCreateFailed(e)),
+            }
+        } else {
+            None
+        };
+
         // Create the mapping
         let mapping = match self.os_id {
             None => {
@@ -121,42 +152,30 @@ impl ShmemConf {
                     match os_impl::create_mapping(&cur_id, self.size) {
                         Err(ShmemError::MappingIdExists) => continue,
                         Ok(m) => break m,
-                        Err(e) => return Err(e),
+                        Err(e) => {
+                            // Do not leave the flink unpopulated
+                            if fout.is_some() {
+                                let _ = std::fs::remove_file(self.flink_path.as_ref().unwrap());
+                            }
+                            return Err(e);
+                        }
                     };
                 }
             }
             Some(ref specific_id) => os_impl::create_mapping(specific_id, self.size)?,
         };
-
         debug!("Created shared memory mapping '{}'", mapping.unique_id);
 
-        // Create flink
-        if let Some(ref flink_path) = self.flink_path {
-            debug!("Creating file link that points to mapping");
-            let mut open_options: OpenOptions = OpenOptions::new();
-            open_options.write(true);
-            if self.overwrite_flink {
-                open_options.create(true).truncate(true);
-            } else {
-                open_options.create_new(true);
+        // Write the os_id in the flink
+        if let Some(mut f) = fout {
+            debug!("Writing memory mapping id to flink");
+            if let Err(e) = f.write(mapping.unique_id.as_bytes()) {
+                // Do not leave the flink unpopulated
+                let _ = std::fs::remove_file(self.flink_path.as_ref().unwrap());
+
+                return Err(ShmemError::LinkWriteFailed(e));
             }
-
-            match open_options.open(flink_path) {
-                Ok(mut f) => {
-                    // Write the os_id in the flink
-                    if let Err(e) = f.write(mapping.unique_id.as_bytes()) {
-                        return Err(ShmemError::LinkWriteFailed(e));
-                    }
-                }
-                Err(e) => {
-                    return Err(match e.kind() {
-                        std::io::ErrorKind::AlreadyExists => ShmemError::LinkExists,
-                        _ => ShmemError::LinkCreateFailed(e),
-                    });
-                }
-            };
-
-            debug!("Created file link '{}'", flink_path.to_string_lossy());
+            let _ = f.unlock();
         }
 
         self.owner = true;
@@ -183,13 +202,19 @@ impl ShmemConf {
                 flink_path.to_string_lossy()
             );
             let mut f = match File::open(flink_path) {
-                Ok(f) => f,
+                Ok(f) => {
+                    f.lock_shared().unwrap();
+                    f
+                }
                 Err(e) => return Err(ShmemError::LinkOpenFailed(e)),
             };
             let mut contents: Vec<u8> = Vec::new();
             if let Err(e) = f.read_to_end(&mut contents) {
+                let _ = f.unlock();
                 return Err(ShmemError::LinkReadFailed(e));
             }
+            let _ = f.unlock();
+
             let link_os_id = match String::from_utf8(contents) {
                 Ok(s) => s,
                 Err(_) => return Err(ShmemError::LinkDoesNotExist),
