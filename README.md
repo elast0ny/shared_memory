@@ -19,7 +19,7 @@ For usage examples, see code located in [examples/](examples/) :
   | Examples | Description |
   |----------|-------------|
   |[event](examples/event.rs)| Shows the use of shared events through shared memory|
-  |[mutex](examples/event.rs)| Shows the use of a shared mutex through shared memory|
+  |[mutex](examples/mutex.rs)| Shows the use of a shared mutex through shared memory|
 
 ## License
 
