@@ -28,24 +28,24 @@ jobs:
           components: rustfmt, clippy
 
       - name: Check Code Format
-        uses: actions-rs/cargo@v1
+        uses: actions-rs/cargo@v1.0.3
         with:
           command: fmt
           args: -- --check
 
       - name: Code Lint
-        uses: actions-rs/cargo@v1
+        uses: actions-rs/cargo@v1.0.3
         with:
           command: clippy
           args: --all-targets -- -D warnings
 
       - name: Build
-        uses: actions-rs/cargo@v1
+        uses: actions-rs/cargo@v1.0.3
         with:
           command: build
           args: --all
       - name: Examples
-        uses: actions-rs/cargo@v1
+        uses: actions-rs/cargo@v1.0.3
         env:
           RUST_LOG: "trace"
         with:
