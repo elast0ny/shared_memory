@@ -9,14 +9,17 @@ edition = "2018"
 #Extra fields for crates.io
 readme = "README.md"
 documentation = "https://docs.rs/shared_memory"
-repository  = "https://github.com/elast0ny/shared_memory-rs"
+repository = "https://github.com/elast0ny/shared_memory-rs"
 keywords = ["shmem", "shared", "memory", "inter-process", "process"]
-categories = ["os::unix-apis","os::windows-apis","memory-management","concurrency","asynchronous"]
-
-exclude = [
-    "ci/*",
-    ".github/*"
+categories = [
+    "os::unix-apis",
+    "os::windows-apis",
+    "memory-management",
+    "concurrency",
+    "asynchronous",
 ]
+
+exclude = ["ci/*", ".github/*"]
 
 [features]
 default = []
@@ -27,17 +30,25 @@ logging = ["log"]
 fs2 = "0.4"
 cfg-if = "1.0"
 rand = "0.8"
-log = {version = "0.4", optional=true}
+log = { version = "0.4", optional = true }
 
 [target.'cfg(unix)'.dependencies]
-nix = "0.20"
+nix = "0.22"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["ntdef", "winerror", "errhandlingapi", "handleapi", "memoryapi", "winbase", "winnt"] }
+winapi = { version = "0.3", features = [
+    "ntdef",
+    "winerror",
+    "errhandlingapi",
+    "handleapi",
+    "memoryapi",
+    "winbase",
+    "winnt",
+] }
 
 [dev-dependencies]
 raw_sync = "0.1"
-clap ="2.33"
+clap = "2.33"
 env_logger = "0"
 log = "0"
