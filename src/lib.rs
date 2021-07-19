@@ -239,7 +239,7 @@ impl ShmemConf {
         let mapping = loop {
             retry_counter -= 1;
             match os_impl::open_mapping(os_id, self.size) {
-                Err(e) if retry_counter <= 0 => return Err(e.into()),
+                Err(e) if retry_counter <= 0 => return Err(e),
                 Ok(mapping) => break mapping,
                 Err(_) => {
                     std::thread::yield_now();
