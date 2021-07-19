@@ -1,4 +1,3 @@
-use ::nix::errno::Errno;
 use ::nix::fcntl::OFlag;
 use ::nix::sys::mman::{mmap, munmap, shm_open, shm_unlink, MapFlags, ProtFlags};
 use ::nix::sys::stat::{fstat, Mode};
@@ -91,9 +90,8 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
             );
             v
         }
-        Err(nix::Error::Sys(Errno::EEXIST)) => return Err(ShmemError::MappingIdExists),
-        Err(nix::Error::Sys(e)) => return Err(ShmemError::MapCreateFailed(e as u32)),
-        _ => return Err(ShmemError::UnknownOsError(0xffff_ffff)),
+        Err(nix::Error::EEXIST) => return Err(ShmemError::MappingIdExists),
+        Err(e) => return Err(ShmemError::MapCreateFailed(e as u32)),
     };
 
     let mut new_map: MapData = MapData {
@@ -109,8 +107,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
     trace!("ftruncate({}, {})", new_map.map_fd, new_map.map_size);
     match ftruncate(new_map.map_fd, new_map.map_size as _) {
         Ok(_) => {}
-        Err(nix::Error::Sys(e)) => return Err(ShmemError::UnknownOsError(e as u32)),
-        _ => return Err(ShmemError::UnknownOsError(0xffff_ffff)),
+        Err(e) => return Err(ShmemError::UnknownOsError(e as u32)),
     };
 
     //Put the mapping in our address space
@@ -136,8 +133,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
             );
             v as *mut _
         }
-        Err(nix::Error::Sys(e)) => return Err(ShmemError::MapCreateFailed(e as u32)),
-        _ => return Err(ShmemError::UnknownOsError(0xffff_ffff)),
+        Err(e) => return Err(ShmemError::MapCreateFailed(e as u32)),
     };
 
     Ok(new_map)
@@ -162,8 +158,7 @@ pub fn open_mapping(unique_id: &str, _map_size: usize) -> Result<MapData, ShmemE
             );
             v
         }
-        Err(nix::Error::Sys(e)) => return Err(ShmemError::MapOpenFailed(e as u32)),
-        _ => return Err(ShmemError::UnknownOsError(0xffff_ffff)),
+        Err(e) => return Err(ShmemError::MapOpenFailed(e as u32)),
     };
 
     let mut new_map: MapData = MapData {
@@ -177,8 +172,7 @@ pub fn open_mapping(unique_id: &str, _map_size: usize) -> Result<MapData, ShmemE
     //Get mmap size
     new_map.map_size = match fstat(new_map.map_fd) {
         Ok(v) => v.st_size as usize,
-        Err(nix::Error::Sys(e)) => return Err(ShmemError::MapOpenFailed(e as u32)),
-        _ => return Err(ShmemError::UnknownOsError(0xffff_ffff)),
+        Err(e) => return Err(ShmemError::MapOpenFailed(e as u32)),
     };
 
     //Map memory into our address space
@@ -204,8 +198,7 @@ pub fn open_mapping(unique_id: &str, _map_size: usize) -> Result<MapData, ShmemE
             );
             v as *mut _
         }
-        Err(nix::Error::Sys(e)) => return Err(ShmemError::MapOpenFailed(e as u32)),
-        _ => return Err(ShmemError::UnknownOsError(0xffff_ffff)),
+        Err(e) => return Err(ShmemError::MapOpenFailed(e as u32)),
     };
 
     Ok(new_map)
