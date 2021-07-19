@@ -234,7 +234,18 @@ impl ShmemConf {
         };
 
         debug!("Openning shared memory id {}", os_id);
-        let mapping = os_impl::open_mapping(os_id, self.size)?;
+
+        let mut retry_counter = if cfg!(target_os = "macos") { 10 } else { 1 };
+        let mapping = loop {
+            retry_counter -= 1;
+            match os_impl::open_mapping(os_id, self.size) {
+                Err(e) if retry_counter <= 0 => return Err(e.into()),
+                Ok(mapping) => break mapping,
+                Err(_) => {
+                    std::thread::yield_now();
+                }
+            }
+        };
 
         self.size = mapping.map_size;
         self.owner = false;

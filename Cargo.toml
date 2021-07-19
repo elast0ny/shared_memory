@@ -50,5 +50,5 @@ winapi = { version = "0.3", features = [
 [dev-dependencies]
 raw_sync = "0.1"
 clap = "2.33"
-env_logger = "0"
-log = "0"
+env_logger = "0.9"
+log = "0.4"
