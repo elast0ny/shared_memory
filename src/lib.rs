@@ -203,7 +203,7 @@ impl ShmemConf {
                 flink_uid.as_str()
             };
 
-            match os_impl::open_mapping(&unique_id, self.size) {
+            match os_impl::open_mapping(unique_id, self.size) {
                 Ok(m) => {
                     self.size = m.map_size;
                     self.owner = false;
