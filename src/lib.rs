@@ -157,7 +157,11 @@ impl ShmemConf {
                 Err(e) => return Err(ShmemError::LinkCreateFailed(e)),
             }
 
-            debug!("Created file link '{}' with id '{}'", flink_path.to_string_lossy(), mapping.unique_id);
+            debug!(
+                "Created file link '{}' with id '{}'",
+                flink_path.to_string_lossy(),
+                mapping.unique_id
+            );
         }
 
         self.owner = true;
@@ -208,7 +212,7 @@ impl ShmemConf {
                         config: self,
                         mapping: m,
                     });
-                },
+                }
                 // If we got this failing os_id from the flink, try again in case the shmem owner didnt write the full
                 // unique_id to the file
                 Err(ShmemError::MapOpenFailed(_)) if self.os_id.is_none() && retry < 5 => {
