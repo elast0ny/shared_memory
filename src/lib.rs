@@ -266,11 +266,11 @@ impl Shmem {
     }
     /// Returns a raw pointer to the mapping
     pub fn as_ptr(&self) -> *mut u8 {
-        self.mapping.map_ptr
+        self.mapping.map_ptr as *mut u8
     }
 
-    pub fn usize_prt(&self) -> usize {
-        self.mapping.map_ptr as usize
+    pub fn usize_ptr(&self) -> usize {
+        self.mapping.map_ptr
     }
     
     /// Returns mapping as a byte slice

@@ -26,7 +26,7 @@ pub struct MapData {
     //Total size of the mapping
     pub map_size: usize,
     //Pointer to the first address of our mapping
-    pub map_ptr: *mut u8,
+    pub map_ptr: usize,
 }
 
 /// Shared memory teardown for linux
@@ -112,7 +112,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize, droppable: bool) -> Resu
         unique_id: String::from(unique_id),
         map_fd: shmem_fd,
         map_size,
-        map_ptr: null_mut(),
+        map_ptr: 0,
     };
 
     //Enlarge the memory descriptor file size to the requested map size
@@ -144,7 +144,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize, droppable: bool) -> Resu
                 new_map.map_fd,
                 v
             );
-            v as *mut _
+            v as *mut u8 as usize
         }
         Err(e) => return Err(ShmemError::MapCreateFailed(e as u32)),
     };
@@ -180,7 +180,7 @@ pub fn open_mapping(unique_id: &str, droppable: bool) -> Result<MapData, ShmemEr
         unique_id: String::from(unique_id),
         map_fd: shmem_fd,
         map_size: 0,
-        map_ptr: null_mut(),
+        map_ptr: 0,
     };
 
     //Get mmap size
@@ -210,7 +210,7 @@ pub fn open_mapping(unique_id: &str, droppable: bool) -> Result<MapData, ShmemEr
                 new_map.map_fd,
                 v
             );
-            v as *mut _
+            v as *mut u8 as usize
         }
         Err(e) => return Err(ShmemError::MapOpenFailed(e as u32)),
     };
@@ -219,7 +219,7 @@ pub fn open_mapping(unique_id: &str, droppable: bool) -> Result<MapData, ShmemEr
 }
 
 pub fn close_mapping(map_data: &mut MapData) {
-    if !map_data.map_ptr.is_null() {
+    if !(map_data.map_ptr as *const u8).is_null() {
         trace!(
             "munmap(map_ptr:{:p},map_size:{})",
             self.map_ptr,
@@ -275,7 +275,7 @@ pub fn reload_mapping(map_data: &mut MapData) -> Result<(), ShmemError> {
             0,                                            //Offset inside "file"
         )
     } {
-        Ok(v) => v as *mut _,
+        Ok(v) => v as *mut u8 as usize,
         Err(e) => return Err(ShmemError::MapOpenFailed(e as u32)),
     };
 
