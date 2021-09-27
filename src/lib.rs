@@ -26,6 +26,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Read, Write};
 
 use std::fs::remove_file;
+use std::os::unix::prelude::RawFd;
 use std::path::{Path, PathBuf};
 
 use ::cfg_if::*;
@@ -273,5 +274,25 @@ impl Shmem {
     /// This function is unsafe because it is impossible to ensure the returned mutable refence is unique/exclusive
     pub unsafe fn as_slice_mut(&mut self) -> &mut [u8] {
         std::slice::from_raw_parts_mut(self.as_ptr(), self.len())
+    }
+
+    /// Resize the shared memory segment
+    pub fn resize(&mut self, new_size: usize) -> Result<(), ShmemError> {
+        os_impl::resize_segment(&mut self.mapping, new_size)?;
+        self.reload()
+    }
+
+    /// Reload the pointer and size from mapping file descriptor
+    pub fn reload(&mut self) -> Result<(), ShmemError> {
+        os_impl::reload_mapping(&mut self.mapping)
+    }
+
+    /// Get the raw file descriptor
+    pub fn raw_fd(&self) -> RawFd {
+        self.mapping.map_fd
+    }
+
+    pub fn unmap(mut self) {
+        os_impl::close_mapping(&mut self.mapping);
     }
 }

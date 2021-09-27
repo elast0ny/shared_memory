@@ -12,7 +12,10 @@ pub enum ShmemError {
     MappingIdExists,
     MapCreateFailed(u32),
     MapOpenFailed(u32),
+    UnmapFailed(nix::Error),
     UnknownOsError(u32),
+    DevShmOutOfMemory,
+    CannotReadDevShm
 }
 
 impl std::fmt::Display for ShmemError {
@@ -30,7 +33,10 @@ impl std::fmt::Display for ShmemError {
             ShmemError::MappingIdExists => f.write_str("Shared memory OS specific ID already exists"),
             ShmemError::MapCreateFailed(err) => write!(f, "Creating the shared memory failed, os error {}", err),
             ShmemError::MapOpenFailed(err) => write!(f, "Opening the shared memory failed, os error {}", err),
+            ShmemError::UnmapFailed(err) => write!(f, "Unmapping the shared memory failed, os (nix) error {}", err),
             ShmemError::UnknownOsError(err) => write!(f, "An unexpected OS error occurred, os error {}", err),
+            ShmemError::CannotReadDevShm => write!(f, "Cannot get stats for `/dev/shm`"),
+            ShmemError::DevShmOutOfMemory => write!(f, "`/dev/shm`is out of memory")
         }
     }
 }
