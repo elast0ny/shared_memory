@@ -6,9 +6,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     // Attempt to create a mapping or open if it already exists
     info!("Getting the shared memory mapping");
-    let shmem = match ShmemConf::new().size(4096).flink("event_mapping").create() {
+    let shmem = match ShmemConf::new(true).size(4096).flink("event_mapping").create() {
         Ok(m) => m,
-        Err(ShmemError::LinkExists) => ShmemConf::new().flink("event_mapping").open()?,
+        Err(ShmemError::LinkExists) => ShmemConf::new(true).flink("event_mapping").open()?,
         Err(e) => return Err(Box::new(e)),
     };
 

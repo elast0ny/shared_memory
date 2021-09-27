@@ -5,11 +5,11 @@ use std::thread;
 #[test]
 fn persistence() {
     let os_id = {
-        let mut shmem = ShmemConf::new().size(4096).create().unwrap();
+        let mut shmem = ShmemConf::new(true).size(4096).create().unwrap();
         shmem.set_owner(false);
         String::from(shmem.get_os_id())
     };
-    let mut shmem = ShmemConf::new().os_id(os_id).open().unwrap();
+    let mut shmem = ShmemConf::new(true).os_id(os_id).open().unwrap();
     shmem.set_owner(true);
 }
 
@@ -23,10 +23,10 @@ fn posix_behavior() {
         .name(String::from("A"))
         .spawn(move || {
             let os_id = {
-                let shmem = ShmemConf::new().size(4096).create().unwrap();
+                let shmem = ShmemConf::new(true).size(4096).create().unwrap();
                 let os_id = String::from(shmem.get_os_id());
                 // Creating two `Shmem`s with the same `os_id` should fail
-                assert!(ShmemConf::new().size(4096).os_id(&os_id).create().is_err());
+                assert!(ShmemConf::new(true).size(4096).os_id(&os_id).create().is_err());
                 tx_b.send(os_id.clone()).unwrap();
                 tx_c.send(os_id.clone()).unwrap();
                 // Wait for threads B and C to confirm they have created their instances.
@@ -40,7 +40,7 @@ fn posix_behavior() {
             };
             // Should not be able to reopen shared memory after an owned instance
             // has been dropped in thread B.
-            assert!(ShmemConf::new().size(4096).os_id(os_id).open().is_err());
+            assert!(ShmemConf::new(true).size(4096).os_id(os_id).open().is_err());
             // Tell thread C to drop the unowned instance.
             tx_c.send(String::new()).unwrap();
         })
@@ -52,14 +52,14 @@ fn posix_behavior() {
             move || {
                 let existing_os_id = rx_b.recv().unwrap();
                 // Creating two `Shmem`s with the same `os_id` should fail
-                assert!(ShmemConf::new()
+                assert!(ShmemConf::new(true)
                     .size(4096)
                     .os_id(&existing_os_id)
                     .create()
                     .is_err());
                 {
                     // Should be able to open the existing shared memory
-                    let mut shmem = ShmemConf::new().os_id(&existing_os_id).open().unwrap();
+                    let mut shmem = ShmemConf::new(true).os_id(&existing_os_id).open().unwrap();
                     shmem.set_owner(true);
                     tx_a.send(String::new()).unwrap();
                     rx_b.recv().unwrap();
@@ -77,7 +77,7 @@ fn posix_behavior() {
             // This thread keeps a shared memory instance alive until it's told to
             // drop it.
             let existing_os_id = rx_c.recv().unwrap();
-            let _shmem = ShmemConf::new().os_id(&existing_os_id).open().unwrap();
+            let _shmem = ShmemConf::new(true).os_id(&existing_os_id).open().unwrap();
             // Indicate to thread A that the instance has been created.
             tx_a.send(String::new()).unwrap();
             // Shut down signal.

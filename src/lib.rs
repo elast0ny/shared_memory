@@ -49,6 +49,7 @@ cfg_if! {
 
 /// Struct used to configure different parameters before creating a shared memory mapping
 pub struct ShmemConf {
+    droppable: bool,
     owner: bool,
     os_id: Option<String>,
     overwrite_flink: bool,
@@ -69,8 +70,12 @@ impl Drop for ShmemConf {
 #[allow(clippy::new_without_default)]
 impl ShmemConf {
     /// Create a new default shmem config
-    pub fn new() -> Self {
+    pub fn new(droppable: bool) -> Self {
+        if !droppable {
+            warn!("Created a non-droppable shared memory batch")
+        }
         Self {
+            droppable,
             owner: false,
             os_id: None,
             overwrite_flink: false,
@@ -94,7 +99,7 @@ impl ShmemConf {
 
     /// Create the shared memory mapping with a file link
     ///
-    /// This creates a file on disk that contains the unique os_id for the mapping.
+    /// This creates a file on disk that contains the unique `os_id` for the mapping.
     /// This can be useful when application want to rely on filesystems to share mappings
     pub fn flink<S: AsRef<Path>>(mut self, path: S) -> Self {
         self.flink_path = Some(PathBuf::from(path.as_ref()));
@@ -119,7 +124,7 @@ impl ShmemConf {
                 // Generate random ID until one works
                 loop {
                     let cur_id = format!("/shmem_{:X}", rand::random::<u64>());
-                    match os_impl::create_mapping(&cur_id, self.size) {
+                    match os_impl::create_mapping(&cur_id, self.size, self.droppable) {
                         Err(ShmemError::MappingIdExists) => continue,
                         Ok(m) => break m,
                         Err(e) => {
@@ -128,7 +133,7 @@ impl ShmemConf {
                     };
                 }
             }
-            Some(ref specific_id) => os_impl::create_mapping(specific_id, self.size)?,
+            Some(ref specific_id) => os_impl::create_mapping(specific_id, self.size, self.droppable)?,
         };
         debug!("Created shared memory mapping '{}'", mapping.unique_id);
 
@@ -204,7 +209,7 @@ impl ShmemConf {
                 flink_uid.as_str()
             };
 
-            match os_impl::open_mapping(unique_id, self.size) {
+            match os_impl::open_mapping(unique_id, self.droppable) {
                 Ok(m) => {
                     self.size = m.map_size;
                     self.owner = false;
@@ -263,6 +268,11 @@ impl Shmem {
     pub fn as_ptr(&self) -> *mut u8 {
         self.mapping.map_ptr
     }
+
+    pub fn usize_prt(&self) -> usize {
+        self.mapping.map_ptr as usize
+    }
+    
     /// Returns mapping as a byte slice
     /// # Safety
     /// This function is unsafe because it is impossible to ensure the range of bytes is immutable

@@ -14,6 +14,7 @@ use std::os::unix::io::RawFd;
 use std::ptr::null_mut;
 
 pub struct MapData {
+    droppable: bool,
     //On linux, you must shm_unlink() the object created for the mapping. It wont disappear automatically.
     owner: bool,
 
@@ -32,6 +33,9 @@ pub struct MapData {
 impl Drop for MapData {
     ///Takes care of properly closing the `SharedMem` (`munmap()`, `shmem_unlink()`, `close()`)
     fn drop(&mut self) {
+        if !self.droppable {
+            return;
+        }
         //Unmap memory
         close_mapping(self);
 
@@ -39,6 +43,7 @@ impl Drop for MapData {
         if self.map_fd != 0 {
             //unlink shmem if we created it
             if self.owner {
+                // TODO remove?
                 debug!("Deleting persistent mapping");
                 trace!("shm_unlink({})", self.unique_id.as_str());
                 if let Err(_e) = shm_unlink(self.unique_id.as_str()) {
@@ -79,7 +84,7 @@ pub fn check_available_space(map_size: usize) -> Result<(), ShmemError> {
 }
 
 /// Creates a mapping specified by the uid and size
-pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
+pub fn create_mapping(unique_id: &str, map_size: usize, droppable: bool) -> Result<MapData, ShmemError> {
     //Create shared memory file descriptor
     debug!("Creating persistent mapping at {}", unique_id);
     let shmem_fd = match shm_open(
@@ -102,6 +107,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
     };
 
     let mut new_map: MapData = MapData {
+        droppable,
         owner: true,
         unique_id: String::from(unique_id),
         map_fd: shmem_fd,
@@ -147,9 +153,7 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
 }
 
 /// Opens an existing mapping specified by its uid
-pub fn open_mapping(unique_id: &str, _map_size: usize) -> Result<MapData, ShmemError> {
-    check_available_space(_map_size)?;
-
+pub fn open_mapping(unique_id: &str, droppable: bool) -> Result<MapData, ShmemError> {
     //Open shared memory
     debug!("Openning persistent mapping at {}", unique_id);
     let shmem_fd = match shm_open(
@@ -171,6 +175,7 @@ pub fn open_mapping(unique_id: &str, _map_size: usize) -> Result<MapData, ShmemE
     };
 
     let mut new_map: MapData = MapData {
+        droppable,
         owner: false,
         unique_id: String::from(unique_id),
         map_fd: shmem_fd,
@@ -181,7 +186,7 @@ pub fn open_mapping(unique_id: &str, _map_size: usize) -> Result<MapData, ShmemE
     //Get mmap size
     new_map.map_size = match fstat(new_map.map_fd) {
         Ok(v) => v.st_size as usize,
-        Err(e) => return Err(ShmemError::MapOpenFailed(e as u32)),
+        Err(e) => return Err(ShmemError::MapOpenFailed(e as u32)), 
     };
 
     //Map memory into our address space
@@ -189,11 +194,11 @@ pub fn open_mapping(unique_id: &str, _map_size: usize) -> Result<MapData, ShmemE
     new_map.map_ptr = match unsafe {
         mmap(
             null_mut(),                                   //Desired addr
-            new_map.map_size,                             //size of mapping
+            new_map.map_size,                           //size of mapping
             ProtFlags::PROT_READ | ProtFlags::PROT_WRITE, //Permissions on pages
-            MapFlags::MAP_SHARED,                         //What kind of mapping
-            new_map.map_fd,                               //fd
-            0,                                            //Offset into fd
+            MapFlags::MAP_SHARED,                        //What kind of mapping
+            new_map.map_fd,                                    //fd
+            0,                                          //Offset into fd
         )
     } {
         Ok(v) => {
