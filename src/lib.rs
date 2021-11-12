@@ -66,10 +66,8 @@ impl Drop for ShmemConf {
         }
     }
 }
-#[allow(clippy::new_without_default)]
-impl ShmemConf {
-    /// Create a new default shmem config
-    pub fn new() -> Self {
+impl Default for ShmemConf {
+    fn default() -> Self {
         Self {
             owner: false,
             os_id: None,
@@ -77,6 +75,12 @@ impl ShmemConf {
             flink_path: None,
             size: 0,
         }
+    }
+}
+impl ShmemConf {
+    /// Create a new default shmem config
+    pub fn new() -> Self {
+        ShmemConf::default()
     }
     /// Provide a specific os identifier for the mapping
     ///
