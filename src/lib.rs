@@ -46,6 +46,7 @@ cfg_if! {
     }
 }
 
+#[derive(Clone)]
 /// Struct used to configure different parameters before creating a shared memory mapping
 pub struct ShmemConf {
     owner: bool,
