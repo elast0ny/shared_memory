@@ -37,7 +37,7 @@ dual licensed as above, without any additional terms or conditions.
 
 ### __0.12.X__
 - Windows implementation now follows POSIX behavior in regards to ownership and deletion, see [#59](https://github.com/elast0ny/shared_memory-rs/pull/59) for more details
-- Added feature gated debug logging ("logging" feature has to be enabled explicitly)
+- Default features disable logging on release builds
 ### __0.11.X__
 This release breaks backwards compatibility and removes a bunch of previous features which hid many unsafe behaviors (automatically casting shared memory to Rust types).
 
