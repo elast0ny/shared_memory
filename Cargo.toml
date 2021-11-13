@@ -34,15 +34,7 @@ nix = "0.23"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = [
-    "ntdef",
-    "winerror",
-    "errhandlingapi",
-    "handleapi",
-    "memoryapi",
-    "winbase",
-    "winnt",
-] }
+win-sys = "0"
 
 [dev-dependencies]
 raw_sync = "0.1"
