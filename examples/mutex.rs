@@ -2,7 +2,6 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::thread;
 
 use clap::{App, Arg};
-use log::*;
 use raw_sync::locks::*;
 use shared_memory::*;
 
@@ -24,7 +23,7 @@ fn main() {
         .parse()
         .expect("Invalid number passed for num_threads");
     if num_threads < 1 {
-        info!("num_threads should be 2 or more");
+        eprintln!("num_threads should be 2 or more");
         return;
     }
     let mut threads = Vec::with_capacity(num_threads);
@@ -50,7 +49,7 @@ fn increment_value(shmem_flink: &str, thread_num: usize) {
         Ok(m) => m,
         Err(ShmemError::LinkExists) => ShmemConf::new().flink(shmem_flink).open().unwrap(),
         Err(e) => {
-            info!(
+            eprintln!(
                 "Unable to create or open shmem flink {} : {}",
                 shmem_flink, e
             );
@@ -102,12 +101,12 @@ fn increment_value(shmem_flink: &str, thread_num: usize) {
             // Cast mutex data to &mut u8
             let val: &mut u8 = unsafe { &mut **guard };
             if *val > 5 {
-                info!("[thread#{}] done !", thread_num);
+                println!("[thread#{}] done !", thread_num);
                 return;
             }
 
             // Print contents and increment value
-            info!("[thread#{}] Val : {}", thread_num, *val);
+            println!("[thread#{}] Val : {}", thread_num, *val);
             *val += 1;
 
             // Hold lock for a second

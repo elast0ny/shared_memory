@@ -1,12 +1,10 @@
 use std::thread;
 
 use clap::{App, Arg};
-use env_logger::Env;
-use log::*;
 use shared_memory::*;
 
 fn main() {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    env_logger::init();
 
     // Get number of thread argument
     let matches = App::new("Basic Example")
@@ -24,7 +22,7 @@ fn main() {
         .parse()
         .expect("Invalid number passed for num_threads");
     if num_threads < 1 {
-        error!("Invalid number of threads");
+        eprintln!("Invalid number of threads");
         return;
     }
 
@@ -52,7 +50,7 @@ fn increment_value(shmem_flink: &str, thread_num: usize) {
         Ok(m) => m,
         Err(ShmemError::LinkExists) => ShmemConf::new().flink(shmem_flink).open().unwrap(),
         Err(e) => {
-            info!(
+            eprintln!(
                 "Unable to create or open shmem flink {} : {}",
                 shmem_flink, e
             );
@@ -69,7 +67,7 @@ fn increment_value(shmem_flink: &str, thread_num: usize) {
             // Increment shared value by one
             *raw_ptr += 1;
 
-            info!(
+            println!(
                 "[thread:{}] {}",
                 thread_num,
                 std::ptr::read_volatile(raw_ptr)

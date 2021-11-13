@@ -1,14 +1,13 @@
-use ::nix::fcntl::OFlag;
-use ::nix::sys::mman::{mmap, munmap, shm_open, shm_unlink, MapFlags, ProtFlags};
-use ::nix::sys::stat::{fstat, Mode};
-use ::nix::unistd::{close, ftruncate};
-
-#[allow(unused_imports)]
-use crate::log::*;
-use crate::ShmemError;
-
 use std::os::unix::io::RawFd;
 use std::ptr::null_mut;
+
+use log::*;
+use nix::fcntl::OFlag;
+use nix::sys::mman::{mmap, munmap, shm_open, shm_unlink, MapFlags, ProtFlags};
+use nix::sys::stat::{fstat, Mode};
+use nix::unistd::{close, ftruncate};
+
+use crate::ShmemError;
 
 pub struct MapData {
     //On linux, you must shm_unlink() the object created for the mapping. It wont disappear automatically.

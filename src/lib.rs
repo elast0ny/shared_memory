@@ -2,33 +2,14 @@
 //!
 //! For help on how to get started, take a look at the [examples](https://github.com/elast0ny/shared_memory-rs/tree/master/examples) !
 
-// Allow dependents to disable logging through the "logging" feature
-cfg_if::cfg_if! {
-    if #[cfg(feature = "logging")] {
-        pub(crate) use log;
-    } else {
-        #[allow(unused_macros)]
-        #[macro_use]
-        pub (crate) mod log {
-            macro_rules! trace (($($tt:tt)*) => {{}});
-            macro_rules! debug (($($tt:tt)*) => {{}});
-            macro_rules! info (($($tt:tt)*) => {{}});
-            macro_rules! warn  (($($tt:tt)*) => {{}});
-            macro_rules! error (($($tt:tt)*) => {{}});
-        }
-    }
-}
-
-#[allow(unused_imports)]
-use crate::log::*;
-
 use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Read, Write};
 
 use std::fs::remove_file;
 use std::path::{Path, PathBuf};
 
-use ::cfg_if::*;
+use cfg_if::cfg_if;
+use log::*;
 
 mod error;
 pub use error::*;

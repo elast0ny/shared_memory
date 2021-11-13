@@ -22,9 +22,7 @@ categories = [
 exclude = ["ci/*", ".github/*"]
 
 [features]
-default = []
-# Logging feature enables debug logs through the log crate
-logging = ["log"]
+default = ["log/release_max_level_off"]
 
 [dependencies]
 cfg-if = "1.0"
@@ -50,4 +48,3 @@ winapi = { version = "0.3", features = [
 raw_sync = "0.1"
 clap = "2.33"
 env_logger = "0"
-log = "0"
