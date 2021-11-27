@@ -1,10 +1,10 @@
 [package]
 name = "shared_memory"
 description = "A user friendly crate that allows you to share memory between processes"
-version = "0.13.0"
+version = "0.12.2"
 authors = ["ElasT0ny <elast0ny00@gmail.com>"]
 license = "MIT OR Apache-2.0"
-edition = "2021"
+edition = "2018"
 
 #Extra fields for crates.io
 readme = "README.md"

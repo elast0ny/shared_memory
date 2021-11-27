@@ -31,14 +31,3 @@ For usage examples, see code located in [examples/](examples/) :
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
-
-
-## Changelog
-
-### __0.12.X__
-- Windows implementation now follows POSIX behavior in regards to ownership and deletion, see [#59](https://github.com/elast0ny/shared_memory-rs/pull/59) for more details
-- Default features disable logging on release builds
-### __0.11.X__
-This release breaks backwards compatibility and removes a bunch of previous features which hid many unsafe behaviors (automatically casting shared memory to Rust types).
-
-The release also marks the split between `shared_memory` and its synchronization primitives into a seperate crate `raw_sync`.
