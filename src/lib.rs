@@ -20,7 +20,6 @@ mod log {
     macro_rules! info (($($tt:tt)*) => {{}});
     macro_rules! warn (($($tt:tt)*) => {{}});
     macro_rules! error (($($tt:tt)*) => {{}});
-
     pub(crate) use {debug, trace};
 }
 

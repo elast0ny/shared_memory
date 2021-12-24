@@ -1,7 +1,7 @@
 use std::os::unix::io::RawFd;
 use std::ptr::null_mut;
 
-use cargo::log::*;
+use crate::log::*;
 use nix::fcntl::OFlag;
 use nix::sys::mman::{mmap, munmap, shm_open, shm_unlink, MapFlags, ProtFlags};
 use nix::sys::stat::{fstat, Mode};
