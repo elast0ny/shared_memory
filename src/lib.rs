@@ -9,7 +9,22 @@ use std::fs::remove_file;
 use std::path::{Path, PathBuf};
 
 use cfg_if::cfg_if;
-use log::*;
+
+#[cfg(feature = "logging")]
+pub use log;
+#[cfg(not(feature = "logging"))]
+#[allow(unused_macros)]
+mod log {
+    macro_rules! trace (($($tt:tt)*) => {{}});
+    macro_rules! debug (($($tt:tt)*) => {{}});
+    macro_rules! info (($($tt:tt)*) => {{}});
+    macro_rules! warn (($($tt:tt)*) => {{}});
+    macro_rules! error (($($tt:tt)*) => {{}});
+
+    pub(crate) use {debug, trace};
+}
+
+use crate::log::*;
 
 mod error;
 pub use error::*;
