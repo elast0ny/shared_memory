@@ -27,7 +27,7 @@ cfg_if! {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 /// Struct used to configure different parameters before creating a shared memory mapping
 pub struct ShmemConf {
     owner: bool,
@@ -47,17 +47,7 @@ impl Drop for ShmemConf {
         }
     }
 }
-impl Default for ShmemConf {
-    fn default() -> Self {
-        Self {
-            owner: false,
-            os_id: None,
-            overwrite_flink: false,
-            flink_path: None,
-            size: 0,
-        }
-    }
-}
+
 impl ShmemConf {
     /// Create a new default shmem config
     pub fn new() -> Self {
