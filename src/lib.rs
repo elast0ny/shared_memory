@@ -9,7 +9,21 @@ use std::fs::remove_file;
 use std::path::{Path, PathBuf};
 
 use cfg_if::cfg_if;
-use log::*;
+
+#[cfg(feature = "logging")]
+pub use log;
+#[cfg(not(feature = "logging"))]
+#[allow(unused_macros)]
+mod log {
+    macro_rules! trace (($($tt:tt)*) => {{}});
+    macro_rules! debug (($($tt:tt)*) => {{}});
+    macro_rules! info (($($tt:tt)*) => {{}});
+    macro_rules! warn (($($tt:tt)*) => {{}});
+    macro_rules! error (($($tt:tt)*) => {{}});
+    pub(crate) use {debug, trace};
+}
+
+use crate::log::*;
 
 mod error;
 pub use error::*;
@@ -27,7 +41,7 @@ cfg_if! {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 /// Struct used to configure different parameters before creating a shared memory mapping
 pub struct ShmemConf {
     owner: bool,
@@ -47,17 +61,7 @@ impl Drop for ShmemConf {
         }
     }
 }
-impl Default for ShmemConf {
-    fn default() -> Self {
-        Self {
-            owner: false,
-            os_id: None,
-            overwrite_flink: false,
-            flink_path: None,
-            size: 0,
-        }
-    }
-}
+
 impl ShmemConf {
     /// Create a new default shmem config
     pub fn new() -> Self {

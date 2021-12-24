@@ -4,7 +4,7 @@ use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
 use std::path::PathBuf;
 use std::ptr::null_mut;
 
-use log::*;
+use crate::log::*;
 use win_sys::*;
 
 use crate::ShmemError;
