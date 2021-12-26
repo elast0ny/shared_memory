@@ -6,6 +6,7 @@ use std::ptr::null_mut;
 
 use crate::log::*;
 use win_sys::*;
+use win_sys::Foundation::INVALID_HANDLE_VALUE;
 
 use crate::ShmemError;
 
@@ -19,7 +20,7 @@ pub struct MapData {
     /// it opens the file with FILE_FLAG_DELETE_ON_CLOSE, renames the file and closes it.
     /// This makes it so future calls to open the old mapping will fail (as it was renamed) and
     /// deletes the renamed file once all handles have been closed.
-    persistent_file: File,
+    persistent_file: Option<File>,
 
     //Shared mapping uid
     pub unique_id: String,
@@ -112,6 +113,11 @@ fn get_tmp_dir() -> Result<PathBuf, ShmemError> {
     debug!("Getting & creating shared_memory-rs temp dir");
     let mut path = std::env::temp_dir();
     path.push("shared_memory-rs");
+
+    if path.is_dir() {
+        return Ok(path);
+    }
+
     match std::fs::create_dir_all(path.as_path()) {
         Ok(_) => Ok(path),
         Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok(path),
@@ -119,188 +125,161 @@ fn get_tmp_dir() -> Result<PathBuf, ShmemError> {
     }
 }
 
-//Creates a mapping specified by the uid and size
-pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
+fn new_map(unique_id: &str, map_size: usize, create: bool)  -> Result<MapData, ShmemError> {
+    let mut f = None;
+    let mut map_h = HANDLE(0);
+
     // Create file to back the shared memory
     let mut file_path = get_tmp_dir()?;
     file_path.push(unique_id.trim_start_matches('/'));
     debug!(
-        "Creating persistent_file at {}",
+        "{} persistent_file at {}",
+        if create {
+            "Creating"
+        } else {
+            "Openning"
+        },
         file_path.to_string_lossy()
     );
 
-    let persistent_file = match OpenOptions::new()
-        .read(true)
+    let mut opt = OpenOptions::new();
+    opt.read(true)
         .write(true)
         .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
-        .create_new(true)
-        .attributes((FILE_ATTRIBUTE_TEMPORARY).0)
-        .open(&file_path)
+        .attributes((FILE_ATTRIBUTE_TEMPORARY).0);
+    if create {
+        opt.create_new(true);
+    } else {
+        opt.create(false);
+    };
+
+    f = match opt.open(&file_path)
     {
-        Ok(f) => f,
+        Ok(f) => Some(f),
         Err(e) if e.kind() == ErrorKind::AlreadyExists => return Err(ShmemError::MappingIdExists),
-        Err(e) => return Err(ShmemError::MapCreateFailed(e.raw_os_error().unwrap() as _)),
+        Err(e) => return Err(
+            if create {
+                ShmemError::MapCreateFailed(e.raw_os_error().unwrap() as _)
+            } else {
+                debug!("Failed to open persistent posix mapping... Try to open raw shared memory by ID");
+                // Allow openning memory mappings not managed by this crate
+                // which do not create a file on disk for the mapping
+                ShmemError::MapOpenFailed(e.raw_os_error().unwrap() as _)
+            }),
     };
 
     // Start using MapData ASAP to rely on auto cleanup through Drop
     let mut new_map: MapData = MapData {
-        owner: true,
-        persistent_file,
+        owner: create,
+        persistent_file: f,
         unique_id: String::from(unique_id),
-        map_handle: HANDLE(0),
+        map_handle: map_h,
         map_size,
         map_ptr: null_mut(),
     };
 
-    //Create Mapping
-    debug!("Creating memory mapping");
-    let high_size: u32 = ((map_size as u64 & 0xFFFF_FFFF_0000_0000_u64) >> 32) as u32;
-    let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF_u64) as u32;
-    //let unique_id: Vec<u16> = OsStr::new(unique_id).encode_wide().chain(once(0)).collect();
-    trace!(
-        "CreateFileMappingW({:p}, NULL, {:X}, {}, {}, '{}') == 0x{:X}",
-        new_map.persistent_file.as_raw_handle(),
-        PAGE_READWRITE.0,
-        high_size,
-        low_size,
-        new_map.unique_id,
-        new_map.map_handle.0
-    );
-
-    new_map.map_handle = match CreateFileMappingW(
-        HANDLE(new_map.persistent_file.as_raw_handle() as _),
-        None,
-        PAGE_READWRITE,
-        high_size,
-        low_size,
-        unique_id,
-    ) {
-        Ok(v) => v,
-        Err(e) => {
-            let err_code = e.win32_error().unwrap();
-            return if err_code == ERROR_ALREADY_EXISTS.0 {
-                Err(ShmemError::MappingIdExists)
+    if new_map.map_handle.0 == 0 {
+        //Create Mapping
+        debug!("{} memory mapping",
+            if create {
+                "Creating"
             } else {
-                Err(ShmemError::MapCreateFailed(err_code))
-            };
-        }
-    };
+                "Openning"
+            },
+        );
+        let high_size: u32 = ((map_size as u64 & 0xFFFF_FFFF_0000_0000_u64) >> 32) as u32;
+        let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF_u64) as u32;
+        trace!(
+            "CreateFileMappingW({:?}, NULL, {:X}, {}, {}, '{}') == 0x{:X}",
+            new_map.persistent_file,
+            PAGE_READWRITE.0,
+            high_size,
+            low_size,
+            new_map.unique_id,
+            new_map.map_handle.0
+        );
 
-    trace!(
-        "CreateFileMappingW({:p}, NULL, {:X}, {}, {}, '{}') == 0x{:X}",
-        new_map.persistent_file.as_raw_handle(),
-        PAGE_READWRITE.0,
-        high_size,
-        low_size,
-        new_map.unique_id,
-        new_map.map_handle.0
-    );
+        new_map.map_handle = match CreateFileMappingW(
+            if let Some(h) = &new_map.persistent_file {
+                HANDLE(h.as_raw_handle() as _)
+            } else {
+                INVALID_HANDLE_VALUE
+            },
+            None,
+            PAGE_READWRITE,
+            high_size,
+            low_size,
+            unique_id,
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                let err_code = e.win32_error().unwrap();
+                return if err_code == ERROR_ALREADY_EXISTS.0 {
+                    Err(ShmemError::MappingIdExists)
+                } else {
+                    Err(if create {
+                        ShmemError::MapCreateFailed(err_code)
+                    } else {
+                        ShmemError::MapOpenFailed(err_code)
+                    })
+                };
+            }
+        };
 
+        trace!(
+            "CreateFileMappingW({:?}, NULL, {:X}, {}, {}, '{}') == 0x{:X}",
+            new_map.persistent_file,
+            PAGE_READWRITE.0,
+            high_size,
+            low_size,
+            new_map.unique_id,
+            new_map.map_handle.0
+        );
+    }
+    
     //Map mapping into address space
     debug!("Loading mapping into address space");
+    trace!(
+        "MapViewOfFile(0x{:X}, {:X}, 0, 0, 0)",
+        new_map.map_handle.0,
+        (FILE_MAP_READ | FILE_MAP_WRITE).0,
+    );
+
     new_map.map_ptr =
         match MapViewOfFile(new_map.map_handle, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0) {
             Ok(v) => v as _,
-            Err(e) => return Err(ShmemError::MapCreateFailed(e.win32_error().unwrap())),
+            Err(e) => return Err(if create {
+                ShmemError::MapCreateFailed(e.win32_error().unwrap())
+            } else {
+                ShmemError::MapOpenFailed(e.win32_error().unwrap())
+            }),
         };
+    
     trace!(
         "MapViewOfFile(0x{:X}, {:X}, 0, 0, 0) == {:p}",
         new_map.map_handle.0,
         (FILE_MAP_READ | FILE_MAP_WRITE).0,
         new_map.map_ptr
     );
+
+    if !create {
+        //Get the real size of the openned mapping
+        let mut info = MEMORY_BASIC_INFORMATION::default();
+        if let Err(e) = VirtualQuery(new_map.map_ptr as _, &mut info) {
+            return Err(ShmemError::UnknownOsError(e.win32_error().unwrap()));
+        }
+        new_map.map_size = info.RegionSize;
+    }
 
     Ok(new_map)
 }
 
+//Creates a mapping specified by the uid and size
+pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
+    new_map(unique_id, map_size, true)
+}
+
 //Opens an existing mapping specified by its uid
 pub fn open_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
-    let mut file_path = get_tmp_dir()?;
-    file_path.push(unique_id.trim_start_matches('/'));
-    debug!(
-        "Openning persistent_file at {}",
-        file_path.to_string_lossy()
-    );
-
-    // Open the file backing the shared memory
-    let persistent_file = match OpenOptions::new()
-        .access_mode(GENERIC_READ | GENERIC_WRITE)
-        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
-        .create(false)
-        .attributes(FILE_ATTRIBUTE_TEMPORARY.0)
-        .open(&file_path)
-    {
-        Ok(f) => f,
-        Err(e) if e.kind() == ErrorKind::AlreadyExists => return Err(ShmemError::MappingIdExists),
-        Err(e) => return Err(ShmemError::MapOpenFailed(e.raw_os_error().unwrap() as _)),
-    };
-
-    // Start using MapData ASAP to rely on auto cleanup through Drop
-    let mut new_map: MapData = MapData {
-        owner: false,
-        persistent_file,
-        unique_id: String::from(unique_id),
-        map_handle: HANDLE(0),
-        map_size,
-        map_ptr: null_mut(),
-    };
-
-    // Open the file mapping
-    // `CreateFileMappingW` returns the handle to the object even if it
-    // exists already and sets ERROR_ALREADY_EXISTS. Ignore the error here.
-    debug!("Openning memory mapping");
-    let high_size: u32 = ((map_size as u64 & 0xFFFF_FFFF_0000_0000_u64) >> 32) as u32;
-    let low_size: u32 = (map_size as u64 & 0xFFFF_FFFF_u64) as u32;
-
-    new_map.map_handle = match CreateFileMappingW(
-        HANDLE(new_map.persistent_file.as_raw_handle() as _),
-        None,
-        PAGE_READWRITE,
-        high_size,
-        low_size,
-        unique_id,
-    ) {
-        Ok(v) => v,
-        Err(e) => {
-            let err_code = e.win32_error().unwrap();
-            return if err_code == ERROR_ALREADY_EXISTS.0 {
-                Err(ShmemError::MappingIdExists)
-            } else {
-                Err(ShmemError::MapOpenFailed(err_code))
-            };
-        }
-    };
-
-    trace!(
-        "CreateFileMappingW({:p}, NULL, {:X}, {}, {}, '{}') == 0x{:X}",
-        new_map.persistent_file.as_raw_handle(),
-        PAGE_READWRITE.0,
-        high_size,
-        low_size,
-        new_map.unique_id,
-        new_map.map_handle.0
-    );
-
-    //Map mapping into address space
-    debug!("Loading mapping into address space");
-    new_map.map_ptr =
-        match MapViewOfFile(new_map.map_handle, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0) {
-            Ok(v) => v as _,
-            Err(e) => return Err(ShmemError::MapOpenFailed(e.win32_error().unwrap())),
-        };
-    trace!(
-        "MapViewOfFile(0x{:X}, {:X}, 0, 0, 0) == {:p}",
-        new_map.map_handle.0,
-        (FILE_MAP_READ | FILE_MAP_WRITE).0,
-        new_map.map_ptr
-    );
-
-    //Get the size of our mapping
-    let mut info = MEMORY_BASIC_INFORMATION::default();
-    if let Err(e) = VirtualQuery(new_map.map_ptr as _, &mut info) {
-        return Err(ShmemError::UnknownOsError(e.win32_error().unwrap()));
-    }
-    new_map.map_size = info.RegionSize;
-
-    Ok(new_map)
+    new_map(unique_id, map_size, false)
 }
