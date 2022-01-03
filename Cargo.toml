@@ -39,5 +39,5 @@ win-sys = "0"
 
 [dev-dependencies]
 raw_sync = "0.1"
-clap = "2.33"
+clap = "3.0"
 env_logger = "0"
