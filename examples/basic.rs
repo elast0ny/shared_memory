@@ -1,39 +1,37 @@
 use std::thread;
 
-use clap::{App, Arg};
+use clap::Parser;
 use shared_memory::*;
+
+/// Spawns N threads that increment a value to 100
+#[derive(Parser)]
+#[clap(author, version, about)]
+struct Args {
+    /// Number of threads to spawn
+    num_threads: usize,
+
+    /// Count to this value
+    #[clap(long, short, default_value_t = 50)]
+    count_to: u8,
+}
 
 fn main() {
     env_logger::init();
+    let args = Args::parse();
 
-    // Get number of thread argument
-    let matches = App::new("Basic Example")
-        .about("Spawns N threads that increment a value to 100")
-        .arg(
-            Arg::with_name("num_threads")
-                .help("Number of threads to spawn")
-                .required(true)
-                .takes_value(true),
-        )
-        .get_matches();
-    let num_threads: usize = matches
-        .value_of("num_threads")
-        .unwrap()
-        .parse()
-        .expect("Invalid number passed for num_threads");
-    if num_threads < 1 {
+    if args.num_threads < 1 {
         eprintln!("Invalid number of threads");
         return;
     }
 
-    let mut threads = Vec::with_capacity(num_threads);
+    let mut threads = Vec::with_capacity(args.num_threads);
     let _ = std::fs::remove_file("basic_mapping");
-
+    let max = args.count_to;
     // Spawn N threads
-    for i in 0..num_threads {
+    for i in 0..args.num_threads {
         let thread_id = i + 1;
         threads.push(thread::spawn(move || {
-            increment_value("basic_mapping", thread_id);
+            increment_value("basic_mapping", thread_id, max);
         }));
     }
 
@@ -44,7 +42,7 @@ fn main() {
 }
 
 /// Increments a value that lives in shared memory
-fn increment_value(shmem_flink: &str, thread_num: usize) {
+fn increment_value(shmem_flink: &str, thread_num: usize, max: u8) {
     // Create or open the shared memory mapping
     let shmem = match ShmemConf::new().size(4096).flink(shmem_flink).create() {
         Ok(m) => m,
@@ -63,7 +61,7 @@ fn increment_value(shmem_flink: &str, thread_num: usize) {
 
     // WARNING: This is prone to race conditions as no sync/locking is used
     unsafe {
-        while std::ptr::read_volatile(raw_ptr) < 100 {
+        while std::ptr::read_volatile(raw_ptr) < max {
             // Increment shared value by one
             *raw_ptr += 1;
 

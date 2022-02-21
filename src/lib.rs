@@ -10,17 +10,20 @@ use std::path::{Path, PathBuf};
 
 use cfg_if::cfg_if;
 
-#[cfg(feature = "logging")]
-pub use log;
-#[cfg(not(feature = "logging"))]
-#[allow(unused_macros)]
-mod log {
-    macro_rules! trace (($($tt:tt)*) => {{}});
-    macro_rules! debug (($($tt:tt)*) => {{}});
-    macro_rules! info (($($tt:tt)*) => {{}});
-    macro_rules! warn (($($tt:tt)*) => {{}});
-    macro_rules! error (($($tt:tt)*) => {{}});
-    pub(crate) use {debug, trace};
+cfg_if! {
+    if #[cfg(feature = "logging")] {
+        pub use log;
+    } else {
+        #[allow(unused_macros)]
+        mod log {
+            macro_rules! trace (($($tt:tt)*) => {{}});
+            macro_rules! debug (($($tt:tt)*) => {{}});
+            macro_rules! info (($($tt:tt)*) => {{}});
+            macro_rules! warn (($($tt:tt)*) => {{}});
+            macro_rules! error (($($tt:tt)*) => {{}});
+            pub(crate) use {debug, trace};
+        }
+    }
 }
 
 use crate::log::*;
@@ -100,6 +103,12 @@ impl ShmemConf {
     pub fn create(mut self) -> Result<Shmem, ShmemError> {
         if self.size == 0 {
             return Err(ShmemError::MapSizeZero);
+        }
+
+        if let Some(ref flink_path) = self.flink_path {
+            if !self.overwrite_flink && flink_path.is_file() {
+                return Err(ShmemError::LinkExists);
+            }
         }
 
         // Create the mapping
@@ -250,7 +259,7 @@ impl Shmem {
     }
     /// Returns a raw pointer to the mapping
     pub fn as_ptr(&self) -> *mut u8 {
-        self.mapping.map_ptr
+        self.mapping.as_mut_ptr()
     }
     /// Returns mapping as a byte slice
     /// # Safety
