@@ -1,36 +1,35 @@
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::thread;
 
-use clap::{App, Arg};
+use clap::Parser;
 use raw_sync::locks::*;
 use shared_memory::*;
 
+/// Spawns N threads that increment a value to 10 using a mutex
+#[derive(Parser)]
+#[clap(author, version, about)]
+struct Args {
+    /// Number of threads to spawn
+    num_threads: usize,
+
+    /// Count to this value
+    #[clap(long, short, default_value_t = 50)]
+    count_to: u8,
+}
+
 fn main() {
     env_logger::init();
-    let matches = App::new("Mutex Example")
-        .about("Spawns N threads that increment a value to 10 using a mutex")
-        .arg(
-            Arg::with_name("num_threads")
-                .help("Number of threads to spawn")
-                .required(true)
-                .takes_value(true),
-        )
-        .get_matches();
+    let args = Args::parse();
 
-    let num_threads: usize = matches
-        .value_of("num_threads")
-        .unwrap()
-        .parse()
-        .expect("Invalid number passed for num_threads");
-    if num_threads < 1 {
+    if args.num_threads < 1 {
         eprintln!("num_threads should be 2 or more");
         return;
     }
-    let mut threads = Vec::with_capacity(num_threads);
+    let mut threads = Vec::with_capacity(args.num_threads);
     let _ = std::fs::remove_file("mutex_mapping");
 
     // Spawn N threads
-    for i in 0..num_threads {
+    for i in 0..args.num_threads {
         let thread_id = i + 1;
         threads.push(thread::spawn(move || {
             increment_value("mutex_mapping", thread_id);

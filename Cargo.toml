@@ -39,5 +39,5 @@ win-sys = "0.2"
 
 [dev-dependencies]
 raw_sync = "0.1"
-clap = "2.33"
+clap = {version = "3", features = ["derive"]}
 env_logger = "0"

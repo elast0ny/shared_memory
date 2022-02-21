@@ -1,51 +1,34 @@
 use std::thread;
 
-use clap::{App, Arg};
+use clap::Parser;
 use shared_memory::*;
+
+/// Spawns N threads that increment a value to 100
+#[derive(Parser)]
+#[clap(author, version, about)]
+struct Args {
+    /// Number of threads to spawn
+    num_threads: usize,
+
+    /// Count to this value
+    #[clap(long, short, default_value_t = 50)]
+    count_to: u8,
+}
 
 fn main() {
     env_logger::init();
+    let args = Args::parse();
 
-    // Get number of thread argument
-    let matches = App::new("Basic Example")
-        .about("Spawns N threads that increment a value to 100")
-        .arg(
-            Arg::with_name("num_threads")
-                .help("Number of threads to spawn")
-                .required(true)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("count_to")
-                .help("Count to this value")
-                .short("c")
-                .long("count")
-                .default_value("50")
-                .takes_value(true)
-        )
-        .get_matches();
-    let num_threads: usize = matches
-        .value_of("num_threads")
-        .unwrap()
-        .parse()
-        .expect("Invalid number passed for num_threads");
-
-    let max: u8 = matches
-        .value_of("count_to")
-        .unwrap()
-        .parse()
-        .expect("Invalid number passed for count_to");
-    
-    if num_threads < 1 {
+    if args.num_threads < 1 {
         eprintln!("Invalid number of threads");
         return;
     }
 
-    let mut threads = Vec::with_capacity(num_threads);
+    let mut threads = Vec::with_capacity(args.num_threads);
     let _ = std::fs::remove_file("basic_mapping");
-
+    let max = args.count_to;
     // Spawn N threads
-    for i in 0..num_threads {
+    for i in 0..args.num_threads {
         let thread_id = i + 1;
         threads.push(thread::spawn(move || {
             increment_value("basic_mapping", thread_id, max);
