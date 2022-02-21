@@ -24,6 +24,12 @@ pub struct MapData {
     pub map_ptr: *mut u8,
 }
 
+impl MapData {
+    pub fn as_mut_ptr(&self) -> *mut u8 {
+        self.map_ptr
+    }
+}
+
 /// Shared memory teardown for linux
 impl Drop for MapData {
     ///Takes care of properly closing the SharedMem (munmap(), shmem_unlink(), close())
