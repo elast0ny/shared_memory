@@ -13,7 +13,7 @@ use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(feature = "logging")] {
         pub use log;
-    } else {    
+    } else {
         #[allow(unused_macros)]
         mod log {
             macro_rules! trace (($($tt:tt)*) => {{}});
@@ -259,7 +259,7 @@ impl Shmem {
     }
     /// Returns a raw pointer to the mapping
     pub fn as_ptr(&self) -> *mut u8 {
-        self.mapping.map_ptr
+        self.mapping.as_mut_ptr()
     }
     /// Returns mapping as a byte slice
     /// # Safety
