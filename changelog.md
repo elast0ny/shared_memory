@@ -1,5 +1,9 @@
 # Changelog
 
+# 0.12.4
+- Allow Windows users to open shared memory that isnt managed by this crate
+- Added tests
+
 # 0.12.2
 - Default feature behavior is to disable logging on release builds
 - Reverted edition bump back to 2018
