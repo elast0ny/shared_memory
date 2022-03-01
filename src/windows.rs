@@ -3,10 +3,23 @@ use std::io::ErrorKind;
 use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
 use std::path::PathBuf;
 
-use crate::log::*;
+use crate::{log::*, ShmemConf};
 use win_sys::*;
 
 use crate::ShmemError;
+
+#[derive(Clone, Default)]
+pub struct ShmemConfExt {
+    allow_raw: bool,
+}
+
+impl ShmemConf {
+    /// If set to true, enables openning raw shared memory that is not managed by this crate
+    pub fn allow_raw(mut self, allow: bool) -> Self {
+        self.ext.allow_raw = allow;
+        self
+    }
+}
 
 pub struct MapData {
     owner: bool,
@@ -118,7 +131,12 @@ fn get_tmp_dir() -> Result<PathBuf, ShmemError> {
     }
 }
 
-fn new_map(unique_id: &str, map_size: usize, create: bool) -> Result<MapData, ShmemError> {
+fn new_map(
+    unique_id: &str,
+    mut map_size: usize,
+    create: bool,
+    allow_raw: bool,
+) -> Result<MapData, ShmemError> {
     // Create file to back the shared memory
     let mut file_path = get_tmp_dir()?;
     file_path.push(unique_id.trim_start_matches('/'));
@@ -188,6 +206,8 @@ fn new_map(unique_id: &str, map_size: usize, create: bool) -> Result<MapData, Sh
         Err(e) => {
             if create {
                 return Err(ShmemError::MapCreateFailed(e.raw_os_error().unwrap() as _));
+            } else if !allow_raw {
+                return Err(ShmemError::MapOpenFailed(ERROR_FILE_NOT_FOUND.0));
             }
 
             // This may be a mapping that isnt managed by this crate
@@ -216,7 +236,7 @@ fn new_map(unique_id: &str, map_size: usize, create: bool) -> Result<MapData, Sh
         (FILE_MAP_READ | FILE_MAP_WRITE).0,
     );
     let map_ptr = match MapViewOfFile(map_h.as_handle(), FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0) {
-        Ok(v) => v as _,
+        Ok(v) => v,
         Err(e) => {
             return Err(if create {
                 ShmemError::MapCreateFailed(e.win32_error().unwrap().0)
@@ -227,33 +247,35 @@ fn new_map(unique_id: &str, map_size: usize, create: bool) -> Result<MapData, Sh
     };
     trace!("\t{:p}", map_ptr);
 
-    let mut new_map = MapData {
+    if !create {
+        //Get the real size of the openned mapping
+        let mut info = MEMORY_BASIC_INFORMATION::default();
+        if let Err(e) = VirtualQuery(map_ptr.as_mut_ptr(), &mut info) {
+            return Err(ShmemError::UnknownOsError(e.win32_error().unwrap().0));
+        }
+        map_size = info.RegionSize;
+    }
+
+    Ok(MapData {
         owner: create,
         file_map: map_h,
         persistent_file,
         unique_id: unique_id.to_string(),
-        map_size: 0,
+        map_size,
         view: map_ptr,
-    };
-
-    if !create {
-        //Get the real size of the openned mapping
-        let mut info = MEMORY_BASIC_INFORMATION::default();
-        if let Err(e) = VirtualQuery(new_map.view.as_mut_ptr() as _, &mut info) {
-            return Err(ShmemError::UnknownOsError(e.win32_error().unwrap().0));
-        }
-        new_map.map_size = info.RegionSize;
-    }
-
-    Ok(new_map)
+    })
 }
 
 //Creates a mapping specified by the uid and size
 pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
-    new_map(unique_id, map_size, true)
+    new_map(unique_id, map_size, true, false)
 }
 
 //Opens an existing mapping specified by its uid
-pub fn open_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
-    new_map(unique_id, map_size, false)
+pub fn open_mapping(
+    unique_id: &str,
+    map_size: usize,
+    ext: &ShmemConfExt,
+) -> Result<MapData, ShmemError> {
+    new_map(unique_id, map_size, false, ext.allow_raw)
 }
