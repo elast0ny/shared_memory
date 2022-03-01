@@ -216,7 +216,7 @@ fn new_map(unique_id: &str, map_size: usize, create: bool) -> Result<MapData, Sh
         (FILE_MAP_READ | FILE_MAP_WRITE).0,
     );
     let map_ptr = match MapViewOfFile(map_h.as_handle(), FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0) {
-        Ok(v) => v as _,
+        Ok(v) => v,
         Err(e) => {
             return Err(if create {
                 ShmemError::MapCreateFailed(e.win32_error().unwrap().0)
@@ -227,25 +227,23 @@ fn new_map(unique_id: &str, map_size: usize, create: bool) -> Result<MapData, Sh
     };
     trace!("\t{:p}", map_ptr);
 
-    let mut new_map = MapData {
+    if !create {
+        //Get the real size of the openned mapping
+        let mut info = MEMORY_BASIC_INFORMATION::default();
+        if let Err(e) = VirtualQuery(map_ptr.as_mut_ptr(), &mut info) {
+            return Err(ShmemError::UnknownOsError(e.win32_error().unwrap().0));
+        }
+        map_size = info.RegionSize;
+    }
+
+    Ok(MapData {
         owner: create,
         file_map: map_h,
         persistent_file,
         unique_id: unique_id.to_string(),
-        map_size: 0,
+        map_size,
         view: map_ptr,
-    };
-
-    if !create {
-        //Get the real size of the openned mapping
-        let mut info = MEMORY_BASIC_INFORMATION::default();
-        if let Err(e) = VirtualQuery(new_map.view.as_mut_ptr() as _, &mut info) {
-            return Err(ShmemError::UnknownOsError(e.win32_error().unwrap().0));
-        }
-        new_map.map_size = info.RegionSize;
-    }
-
-    Ok(new_map)
+    })
 }
 
 //Creates a mapping specified by the uid and size
