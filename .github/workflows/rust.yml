@@ -43,11 +43,16 @@ jobs:
         uses: actions-rs/cargo@v1.0.3
         with:
           command: build
-          args: --all
+
+      - name: Tests
+        uses: actions-rs/cargo@v1.0.3
+        with:
+          command: test
+
       - name: Examples
         uses: actions-rs/cargo@v1.0.3
         env:
           RUST_LOG: "trace"
         with:
           command: run
-          args: --all-features --example mutex -- 2
+          args: --all-features --example mutex -- 15
