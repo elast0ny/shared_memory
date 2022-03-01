@@ -148,7 +148,11 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
 }
 
 /// Opens an existing mapping specified by its uid
-pub fn open_mapping(unique_id: &str, _map_size: usize, _ext: &ShmemConfExt) -> Result<MapData, ShmemError> {
+pub fn open_mapping(
+    unique_id: &str,
+    _map_size: usize,
+    _ext: &ShmemConfExt,
+) -> Result<MapData, ShmemError> {
     //Open shared memory
     debug!("Openning persistent mapping at {}", unique_id);
     let shmem_fd = match shm_open(
