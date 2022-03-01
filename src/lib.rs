@@ -52,6 +52,7 @@ pub struct ShmemConf {
     overwrite_flink: bool,
     flink_path: Option<PathBuf>,
     size: usize,
+    ext: os_impl::ShmemConfExt,
 }
 impl Drop for ShmemConf {
     fn drop(&mut self) {
@@ -184,6 +185,7 @@ impl ShmemConf {
         let mut retry = 0;
         loop {
             let unique_id = if let Some(ref unique_id) = self.os_id {
+                retry = 5;
                 unique_id.as_str()
             } else {
                 let flink_path = self.flink_path.as_ref().unwrap();
@@ -202,7 +204,7 @@ impl ShmemConf {
                 flink_uid.as_str()
             };
 
-            match os_impl::open_mapping(unique_id, self.size) {
+            match os_impl::open_mapping(unique_id, self.size, &self.ext) {
                 Ok(m) => {
                     self.size = m.map_size;
                     self.owner = false;

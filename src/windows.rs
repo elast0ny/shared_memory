@@ -3,10 +3,23 @@ use std::io::ErrorKind;
 use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
 use std::path::PathBuf;
 
-use crate::log::*;
+use crate::{log::*, ShmemConf};
 use win_sys::*;
 
 use crate::ShmemError;
+
+#[derive(Clone, Default)]
+pub struct ShmemConfExt {
+    allow_raw: bool,
+}
+
+impl ShmemConf {
+    /// If set to true, enables openning raw shared memory that is not managed by this crate
+    pub fn allow_raw(mut self, allow: bool) -> Self {
+        self.ext.allow_raw = allow;
+        self
+    }
+}
 
 pub struct MapData {
     owner: bool,
@@ -118,7 +131,12 @@ fn get_tmp_dir() -> Result<PathBuf, ShmemError> {
     }
 }
 
-fn new_map(unique_id: &str, map_size: usize, create: bool) -> Result<MapData, ShmemError> {
+fn new_map(
+    unique_id: &str,
+    mut map_size: usize,
+    create: bool,
+    allow_raw: bool,
+) -> Result<MapData, ShmemError> {
     // Create file to back the shared memory
     let mut file_path = get_tmp_dir()?;
     file_path.push(unique_id.trim_start_matches('/'));
@@ -188,6 +206,8 @@ fn new_map(unique_id: &str, map_size: usize, create: bool) -> Result<MapData, Sh
         Err(e) => {
             if create {
                 return Err(ShmemError::MapCreateFailed(e.raw_os_error().unwrap() as _));
+            } else if !allow_raw {
+                return Err(ShmemError::MapOpenFailed(ERROR_FILE_NOT_FOUND.0));
             }
 
             // This may be a mapping that isnt managed by this crate
@@ -248,10 +268,14 @@ fn new_map(unique_id: &str, map_size: usize, create: bool) -> Result<MapData, Sh
 
 //Creates a mapping specified by the uid and size
 pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
-    new_map(unique_id, map_size, true)
+    new_map(unique_id, map_size, true, false)
 }
 
 //Opens an existing mapping specified by its uid
-pub fn open_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
-    new_map(unique_id, map_size, false)
+pub fn open_mapping(
+    unique_id: &str,
+    map_size: usize,
+    ext: &ShmemConfExt,
+) -> Result<MapData, ShmemError> {
+    new_map(unique_id, map_size, false, ext.allow_raw)
 }
