@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::os::unix::io::RawFd;
 use std::ptr::null_mut;
 
@@ -83,6 +84,9 @@ impl MapData {
 pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
     //Create shared memory file descriptor
     debug!("Creating persistent mapping at {}", unique_id);
+
+    let nz_map_size = NonZeroUsize::new(map_size).ok_or(ShmemError::MapSizeZero)?;
+
     let shmem_fd = match shm_open(
         unique_id, //Unique name that usualy pops up in /dev/shm/
         OFlag::O_CREAT | OFlag::O_EXCL | OFlag::O_RDWR, //create exclusively (error if collision) and read/write to allow resize
@@ -122,8 +126,8 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
     debug!("Loading mapping into address space");
     new_map.map_ptr = match unsafe {
         mmap(
-            null_mut(),                                   //Desired addr
-            new_map.map_size,                             //size of mapping
+            None,                                         //Desired addr
+            nz_map_size,                                  //size of mapping
             ProtFlags::PROT_READ | ProtFlags::PROT_WRITE, //Permissions on pages
             MapFlags::MAP_SHARED,                         //What kind of mapping
             new_map.map_fd,                               //fd
@@ -187,12 +191,14 @@ pub fn open_mapping(
         Err(e) => return Err(ShmemError::MapOpenFailed(e as u32)),
     };
 
+    let nz_map_size = NonZeroUsize::new(new_map.map_size).ok_or(ShmemError::MapSizeZero)?;
+
     //Map memory into our address space
     debug!("Loading mapping into address space");
     new_map.map_ptr = match unsafe {
         mmap(
-            null_mut(),                                   //Desired addr
-            new_map.map_size,                             //size of mapping
+            None,                                         //Desired addr
+            nz_map_size,                                  //size of mapping
             ProtFlags::PROT_READ | ProtFlags::PROT_WRITE, //Permissions on pages
             MapFlags::MAP_SHARED,                         //What kind of mapping
             new_map.map_fd,                               //fd
