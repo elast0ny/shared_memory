@@ -21,16 +21,16 @@ impl std::fmt::Display for ShmemError {
             ShmemError::MapSizeZero => f.write_str("You cannot create a shared memory mapping of 0 size"),
             ShmemError::NoLinkOrOsId => f.write_str("Tried to open mapping without flink path or os_id"),
             ShmemError::FlinkInvalidOsId => f.write_str("Tried to open mapping from both flink and os_id but the flink did not point to the same os_id"),
-            ShmemError::LinkCreateFailed(err) => write!(f, "Creating the link file failed, {}", err),
-            ShmemError::LinkWriteFailed(err) => write!(f, "Writing the link file failed, {}", err),
+            ShmemError::LinkCreateFailed(err) => write!(f, "Creating the link file failed, {err}"),
+            ShmemError::LinkWriteFailed(err) => write!(f, "Writing the link file failed, {err}"),
             ShmemError::LinkExists => f.write_str("Shared memory link already exists"),
-            ShmemError::LinkOpenFailed(err) => write!(f, "Opening the link file failed, {}", err),
-            ShmemError::LinkReadFailed(err) => write!(f, "Reading the link file failed, {}", err),
+            ShmemError::LinkOpenFailed(err) => write!(f, "Opening the link file failed, {err}"),
+            ShmemError::LinkReadFailed(err) => write!(f, "Reading the link file failed, {err}"),
             ShmemError::LinkDoesNotExist => f.write_str("Requested link file does not exist"),
             ShmemError::MappingIdExists => f.write_str("Shared memory OS specific ID already exists"),
-            ShmemError::MapCreateFailed(err) => write!(f, "Creating the shared memory failed, os error {}", err),
-            ShmemError::MapOpenFailed(err) => write!(f, "Opening the shared memory failed, os error {}", err),
-            ShmemError::UnknownOsError(err) => write!(f, "An unexpected OS error occurred, os error {}", err),
+            ShmemError::MapCreateFailed(err) => write!(f, "Creating the shared memory failed, os error {err}"),
+            ShmemError::MapOpenFailed(err) => write!(f, "Opening the shared memory failed, os error {err}"),
+            ShmemError::UnknownOsError(err) => write!(f, "An unexpected OS error occurred, os error {err}"),
         }
     }
 }

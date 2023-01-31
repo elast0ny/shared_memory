@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         //Create an event in the shared memory
         println!("Creating event in shared memory");
         let (evt, used_bytes) = unsafe { Event::new(shmem.as_ptr(), true)? };
-        println!("\tUsed {} bytes", used_bytes);
+        println!("\tUsed {used_bytes} bytes");
 
         println!("Launch another instance of this example to signal the event !");
         evt.wait(Timeout::Infinite)?;
@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Open existing event
         println!("Openning event from shared memory");
         let (evt, used_bytes) = unsafe { Event::from_existing(shmem.as_ptr())? };
-        println!("\tEvent uses {} bytes", used_bytes);
+        println!("\tEvent uses {used_bytes} bytes");
 
         println!("Signaling event !");
         evt.set(EventState::Signaled)?;
