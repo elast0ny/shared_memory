@@ -48,9 +48,7 @@ fn increment_value(shmem_flink: &str, thread_num: usize) {
         Ok(m) => m,
         Err(ShmemError::LinkExists) => ShmemConf::new().flink(shmem_flink).open().unwrap(),
         Err(e) => {
-            eprintln!(
-                "Unable to create or open shmem flink {shmem_flink} : {e}"
-            );
+            eprintln!("Unable to create or open shmem flink {shmem_flink} : {e}");
             return;
         }
     };
