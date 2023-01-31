@@ -77,7 +77,7 @@ fn posix_behavior() {
             // This thread keeps a shared memory instance alive until it's told to
             // drop it.
             let existing_os_id = rx_c.recv().unwrap();
-            let _shmem = ShmemConf::new().os_id(&existing_os_id).open().unwrap();
+            let _shmem = ShmemConf::new().os_id(existing_os_id).open().unwrap();
             // Indicate to thread A that the instance has been created.
             tx_a.send(String::new()).unwrap();
             // Shut down signal.

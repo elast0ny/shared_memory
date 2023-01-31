@@ -69,7 +69,7 @@ fn open_flink() {
     let s1 = ShmemConf::new().flink(flink).size(4090).create().unwrap();
 
     // Open with file base link
-    let mut s2 = ShmemConf::new().flink(&flink).open().unwrap();
+    let mut s2 = ShmemConf::new().flink(flink).open().unwrap();
 
     assert!(!s2.is_owner());
     assert!(!s2.get_os_id().is_empty());
@@ -85,7 +85,7 @@ fn open_flink() {
     drop(s1);
 
     // Make sure it can be openned again
-    assert!(ShmemConf::new().flink(&flink).open().is_err());
+    assert!(ShmemConf::new().flink(flink).open().is_err());
 
     drop(s2);
 }
@@ -99,7 +99,7 @@ fn share_data() {
 
     // Open with the unique os id
     let os_id = s1.get_os_id().to_string();
-    let s2 = ShmemConf::new().os_id(&os_id).open().unwrap();
+    let s2 = ShmemConf::new().os_id(os_id).open().unwrap();
 
     let ptr1 = s1.as_ptr() as *mut u32;
     let ptr2 = s2.as_ptr() as *mut u32;

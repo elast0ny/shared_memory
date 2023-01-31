@@ -1,5 +1,9 @@
 # Changelog
 
+# 0.12.5
+- Update dependencies
+- Use minimal features for `nix` on unix systems
+
 # 0.12.4
 - Allow Windows users to open shared memory that isnt managed by this crate
 - Added tests
