@@ -44,16 +44,32 @@ cfg_if! {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 /// Struct used to configure different parameters before creating a shared memory mapping
 pub struct ShmemConf {
     owner: bool,
+    writable: bool,
     os_id: Option<String>,
     overwrite_flink: bool,
     flink_path: Option<PathBuf>,
     size: usize,
     ext: os_impl::ShmemConfExt,
 }
+
+impl Default for ShmemConf {
+    fn default() -> Self {
+        Self {
+            owner: false,
+            writable: true,
+            os_id: None,
+            overwrite_flink: false,
+            flink_path: None,
+            size: Default::default(),
+            ext: Default::default(),
+        }
+    }
+}
+
 impl Drop for ShmemConf {
     fn drop(&mut self) {
         // Delete the flink if we are the owner of the mapping
@@ -100,6 +116,14 @@ impl ShmemConf {
         self
     }
 
+    /// Specifies whether the region should be writable by this process.
+    ///
+    /// Enabled by default.
+    pub fn writable(mut self, writable: bool) -> Self {
+        self.writable = writable;
+        self
+    }
+
     /// Create a new mapping using the current configuration
     pub fn create(mut self) -> Result<Shmem, ShmemError> {
         if self.size == 0 {
@@ -118,7 +142,7 @@ impl ShmemConf {
                 // Generate random ID until one works
                 loop {
                     let cur_id = format!("/shmem_{:X}", rand::random::<u64>());
-                    match os_impl::create_mapping(&cur_id, self.size) {
+                    match os_impl::create_mapping(&cur_id, self.size, self.writable) {
                         Err(ShmemError::MappingIdExists) => continue,
                         Ok(m) => break m,
                         Err(e) => {
@@ -127,7 +151,9 @@ impl ShmemConf {
                     };
                 }
             }
-            Some(ref specific_id) => os_impl::create_mapping(specific_id, self.size)?,
+            Some(ref specific_id) => {
+                os_impl::create_mapping(specific_id, self.size, self.writable)?
+            }
         };
         debug!("Created shared memory mapping '{}'", mapping.unique_id);
 
@@ -204,7 +230,7 @@ impl ShmemConf {
                 flink_uid.as_str()
             };
 
-            match os_impl::open_mapping(unique_id, self.size, &self.ext) {
+            match os_impl::open_mapping(unique_id, self.size, &self.ext, self.writable) {
                 Ok(m) => {
                     self.size = m.map_size;
                     self.owner = false;
