@@ -81,7 +81,11 @@ impl MapData {
 }
 
 /// Creates a mapping specified by the uid and size
-pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
+pub fn create_mapping(
+    unique_id: &str,
+    map_size: usize,
+    writable: bool,
+) -> Result<MapData, ShmemError> {
     //Create shared memory file descriptor
     debug!("Creating persistent mapping at {}", unique_id);
 
@@ -124,21 +128,26 @@ pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, Shmem
 
     //Put the mapping in our address space
     debug!("Loading mapping into address space");
+    let access = if writable {
+        ProtFlags::PROT_READ | ProtFlags::PROT_WRITE
+    } else {
+        ProtFlags::PROT_READ
+    };
     new_map.map_ptr = match unsafe {
         mmap(
-            None,                                         //Desired addr
-            nz_map_size,                                  //size of mapping
-            ProtFlags::PROT_READ | ProtFlags::PROT_WRITE, //Permissions on pages
-            MapFlags::MAP_SHARED,                         //What kind of mapping
-            new_map.map_fd,                               //fd
-            0,                                            //Offset into fd
+            None,                 //Desired addr
+            nz_map_size,          //size of mapping
+            access,               //Permissions on pages
+            MapFlags::MAP_SHARED, //What kind of mapping
+            new_map.map_fd,       //fd
+            0,                    //Offset into fd
         )
     } {
         Ok(v) => {
             trace!(
                 "mmap(NULL, {}, {:X}, {:X}, {}, 0) == {:p}",
                 new_map.map_size,
-                ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
+                access,
                 MapFlags::MAP_SHARED,
                 new_map.map_fd,
                 v
@@ -156,6 +165,7 @@ pub fn open_mapping(
     unique_id: &str,
     _map_size: usize,
     _ext: &ShmemConfExt,
+    writable: bool,
 ) -> Result<MapData, ShmemError> {
     //Open shared memory
     debug!("Openning persistent mapping at {}", unique_id);
@@ -195,21 +205,26 @@ pub fn open_mapping(
 
     //Map memory into our address space
     debug!("Loading mapping into address space");
+    let access = if writable {
+        ProtFlags::PROT_READ | ProtFlags::PROT_WRITE
+    } else {
+        ProtFlags::PROT_READ
+    };
     new_map.map_ptr = match unsafe {
         mmap(
-            None,                                         //Desired addr
-            nz_map_size,                                  //size of mapping
-            ProtFlags::PROT_READ | ProtFlags::PROT_WRITE, //Permissions on pages
-            MapFlags::MAP_SHARED,                         //What kind of mapping
-            new_map.map_fd,                               //fd
-            0,                                            //Offset into fd
+            None,                 //Desired addr
+            nz_map_size,          //size of mapping
+            access,               //Permissions on pages
+            MapFlags::MAP_SHARED, //What kind of mapping
+            new_map.map_fd,       //fd
+            0,                    //Offset into fd
         )
     } {
         Ok(v) => {
             trace!(
                 "mmap(NULL, {}, {:X}, {:X}, {}, 0) == {:p}",
                 new_map.map_size,
-                ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
+                access,
                 MapFlags::MAP_SHARED,
                 new_map.map_fd,
                 v

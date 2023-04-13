@@ -136,6 +136,7 @@ fn new_map(
     mut map_size: usize,
     create: bool,
     allow_raw: bool,
+    writable: bool,
 ) -> Result<MapData, ShmemError> {
     // Create file to back the shared memory
     let mut file_path = get_tmp_dir()?;
@@ -230,12 +231,13 @@ fn new_map(
 
     //Map mapping into address space
     debug!("Loading mapping into address space");
-    trace!(
-        "MapViewOfFile(0x{:X}, {:X}, 0, 0, 0)",
-        map_h,
-        (FILE_MAP_READ | FILE_MAP_WRITE).0,
-    );
-    let map_ptr = match MapViewOfFile(map_h.as_handle(), FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0) {
+    let access = if writable {
+        FILE_MAP_READ | FILE_MAP_WRITE
+    } else {
+        FILE_MAP_READ
+    };
+    trace!("MapViewOfFile(0x{:X}, {:X}, 0, 0, 0)", map_h, access.0,);
+    let map_ptr = match MapViewOfFile(map_h.as_handle(), access, 0, 0, 0) {
         Ok(v) => v,
         Err(e) => {
             return Err(if create {
@@ -267,8 +269,12 @@ fn new_map(
 }
 
 //Creates a mapping specified by the uid and size
-pub fn create_mapping(unique_id: &str, map_size: usize) -> Result<MapData, ShmemError> {
-    new_map(unique_id, map_size, true, false)
+pub fn create_mapping(
+    unique_id: &str,
+    map_size: usize,
+    writable: bool,
+) -> Result<MapData, ShmemError> {
+    new_map(unique_id, map_size, true, false, writable)
 }
 
 //Opens an existing mapping specified by its uid
@@ -276,6 +282,7 @@ pub fn open_mapping(
     unique_id: &str,
     map_size: usize,
     ext: &ShmemConfExt,
+    writable: bool,
 ) -> Result<MapData, ShmemError> {
-    new_map(unique_id, map_size, false, ext.allow_raw)
+    new_map(unique_id, map_size, false, ext.allow_raw, writable)
 }
